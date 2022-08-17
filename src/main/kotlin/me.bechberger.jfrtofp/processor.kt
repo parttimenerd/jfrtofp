@@ -104,8 +104,8 @@ data class Config(
     /** use native allocations view to show per allocated class allocations */
     val useNativeAllocViewForAllocations: Boolean = true,
     /** maximum number of stack frames to show in tooltip TODO: remove */
-    val maxStackTraceFrames: Int = 20,
-    val maxThreads: Int = 10,
+    val maxStackTraceFrames: Int = 20, // TODO: implement
+    val maxThreads: Int = 100,
     val omitEventThreadProperty: Boolean = true
 ) {
 
@@ -1066,6 +1066,7 @@ class FirefoxProfileGenerator(
         val tables = Tables(config)
         val samplesTable = generateSamplesTable(tables, executionSamples)
         val isMainThread = thread.javaThreadId == this.mainThreadId
+        val hasObjectSamples = sortedEventsPerType["jdk.ObjectAllocationSample"]?.isNotEmpty() ?: false
         return Thread(
             processType = if (isSystemThread(thread)) config.systemThreadType else "default",
             processStartupTime = if (isMainThread) 0.0 else start,
@@ -1077,12 +1078,13 @@ class FirefoxProfileGenerator(
             pid = pid,
             tid = thread.javaThreadId,
             samples = samplesTable,
-            jsAllocations = if (config.enableAllocations) generateJsAllocationsTable(
+            jsAllocations = if (config.enableAllocations && hasObjectSamples) generateJsAllocationsTable(
                 tables,
                 sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
                 isGCThread(thread)
             ) else null,
-            nativeAllocations = if (config.useNativeAllocViewForAllocations) generateNativeAllocationsTable(
+            nativeAllocations = if (config.enableAllocations &&
+                config.useNativeAllocViewForAllocations && hasObjectSamples) generateNativeAllocationsTable(
                 tables,
                 sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
                 isGCThread(thread)
@@ -1153,7 +1155,7 @@ class FirefoxProfileGenerator(
     }
 
     private val jsonFormat = Json {
-        prettyPrint = false
+        prettyPrint = true
         encodeDefaults = true
     }
 

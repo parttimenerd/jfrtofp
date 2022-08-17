@@ -179,6 +179,10 @@ interface SamplesLikeTable {
     val length: Int
 }
 
+fun SamplesLikeTable?.isNullOrEmpty(): Boolean {
+    return this == null || this.length == 0
+}
+
 /**
  * The Gecko Profiler records samples of what function was currently being executed, and
  * the callstack that is associated with it. This is done at a fixed but configurable
@@ -751,6 +755,7 @@ data class Thread(
     val pid: Pid,
     val tid: Tid,
     val samples: SamplesTable,
+    /* this table cannot be empty */
     val jsAllocations: JsAllocationsTable? = null,
     val nativeAllocations: NativeAllocationsTable? = null,
     val markers: RawMarkerTable,
@@ -782,8 +787,14 @@ data class Thread(
     It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
     had no extra attribute at all.
     */
-    val userContextId: Int? = null,
-)
+    val userContextId: Int? = null
+) {
+    init {
+        assert(jsAllocations.isNullOrEmpty())
+        assert(nativeAllocations.isNullOrEmpty())
+        assert(samples.isNullOrEmpty())
+    }
+}
 
 @Serializable
 data class ExtensionTable(
