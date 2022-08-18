@@ -8,7 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 fun main(args: Array<String>) {
-    val json = FirefoxProfileGenerator(RecordingFile.readAllEvents(Path.of(args[0])), config = Config()).generateJSON()
+    val json = FirefoxProfileGenerator(RecordingFile.readAllEvents(Path.of(args[0])).sortedBy { it.startTime }, config = Config()).generateJSON()
     val jsonFile = Path.of(args[0].replace(".jfr", ".json"))
     Files.write(jsonFile, json.toByteArray())
 }

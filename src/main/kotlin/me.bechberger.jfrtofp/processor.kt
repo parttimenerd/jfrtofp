@@ -5,7 +5,6 @@ import jdk.jfr.consumer.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.lang.reflect.Modifier
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.*
@@ -127,15 +126,15 @@ enum class CategoryE(
     OTHER("Other", "grey", mutableListOf("Profiling", "Waiting")), JAVA(
         "Java",
         "blue",
-        mutableListOf("Interpreted", "Compiled", "Native", "Inlined")
+        mutableListOf("Other", "Interpreted", "Compiled", "Native", "Inlined")
     ),
     NON_PROJECT_JAVA(
         "Java (non-project)",
         "darkgray",
-        mutableListOf("Interpreted", "Compiled", "Native", "Inlined")
+        mutableListOf("Other", "Interpreted", "Compiled", "Native", "Inlined")
     ),
-    GC("GC", "orange", mutableListOf()),
-    CPP("Native", "red", mutableListOf()),
+    GC("GC", "orange", mutableListOf("Other")),
+    CPP("Native", "red", mutableListOf("Other")),
 
     // JFR related categories
     JFR("Flight Recorder", "lightgrey"),
@@ -1157,6 +1156,7 @@ class FirefoxProfileGenerator(
     private val jsonFormat = Json {
         prettyPrint = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     fun generateJSON(): String {
