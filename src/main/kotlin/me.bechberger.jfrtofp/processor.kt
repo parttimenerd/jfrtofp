@@ -102,10 +102,12 @@ data class Config(
     val enableAllocations: Boolean = true,
     /** use native allocations view to show per allocated class allocations */
     val useNativeAllocViewForAllocations: Boolean = true,
-    /** maximum number of stack frames to show in tooltip TODO: remove */
-    val maxStackTraceFrames: Int = 20, // TODO: implement
+    /** maximum number of stack frames */
+    val maxStackTraceFrames: Int = Int.MAX_VALUE,
     val maxThreads: Int = 100,
-    val omitEventThreadProperty: Boolean = true
+    val omitEventThreadProperty: Boolean = true,
+    val maxExecutionSamplesPerThread: Int = 2,
+    val maxMiscSamplesPerThread: Int = 0,
 ) {
 
     fun isRelevantForJava(func: RecordedMethod): Boolean {
@@ -192,6 +194,10 @@ class FirefoxProfileGenerator(
     val events: List<RecordedEvent>, val config: Config, intervalSeconds: Double? = null, val jfrFile: Path? = null
 ) {
 
+    constructor(jfrFile: Path, config: Config = Config()) :
+            this(RecordingFile.readAllEvents(jfrFile).sortedBy { it.startTime }, config, jfrFile = jfrFile) {
+    }
+
     private val eventsPerType: Map<String, List<RecordedEvent>>
 
     private fun List<RecordedEvent>.groupByType() =
@@ -229,7 +235,7 @@ class FirefoxProfileGenerator(
         get() = jvmInformation.getLong("jvmStartTime") * 1.0
 
     private val endTimeMillis
-        get() = eventsPerType["jdk.ShutDown"]?.get(0)?.startTime?.toMillis() ?: events.last().startTime.toMillis()
+        get() = eventsPerType["jdk.ShutDown"]?.getOrNull(0)?.startTime?.toMillis() ?: events.last().startTime.toMillis()
 
     val pid
         get() = jvmInformation.getLong("pid")
@@ -241,7 +247,7 @@ class FirefoxProfileGenerator(
     }
 
     val platform
-        get() = eventsPerType["jdk.OSInformation"]?.get(0)?.getString("osVersion")?.let {
+        get() = eventsPerType["jdk.OSInformation"]?.getOrNull(0)?.getString("osVersion")?.let {
             if ("Android" in it) {
                 "Android"
             } else if ("Mac OS X" in it) {
@@ -254,9 +260,9 @@ class FirefoxProfileGenerator(
         }
 
     val oscpu
-        get() = eventsPerType["jdk.OSInformation"]?.get(0)?.getString("osVersion")?.let { it ->
-            it.split("uname:")[1].split("\n").get(0)?.let { distId ->
-                eventsPerType["jdk.CPUInformation"]?.get(0)?.getString("cpu")?.split(" ")?.get(0)?.let {
+        get() = eventsPerType["jdk.OSInformation"]?.getOrNull(0)?.getString("osVersion")?.let { it ->
+            it.split("uname:")[1].split("\n").getOrNull(0)?.let { distId ->
+                eventsPerType["jdk.CPUInformation"]?.getOrNull(0)?.getString("cpu")?.split(" ")?.getOrNull(0)?.let {
                     "$it $distId"
                 } ?: distId
             } ?: it
@@ -601,11 +607,15 @@ class FirefoxProfileGenerator(
         private fun getHashedFrameList(tables: Tables, stackTrace: RecordedStackTrace, isInGCThread: Boolean) =
             HashedList(stackTrace.frames.reversed().map { tables.frameTable.getFrame(tables, it, isInGCThread) })
 
-        fun getStack(tables: Tables, stackTrace: RecordedStackTrace, isInGCThread: Boolean): IndexIntoStackTable {
-            return getStack(tables, getHashedFrameList(tables, stackTrace, isInGCThread))
+        fun getStack(tables: Tables, stackTrace: RecordedStackTrace, isInGCThread: Boolean,
+                     maxStackTraceFrames: Int = Int.MAX_VALUE): IndexIntoStackTable {
+            return getStack(tables, getHashedFrameList(tables, stackTrace, isInGCThread), maxStackTraceFrames)
         }
 
-        fun getStack(tables: Tables, stackTrace: HashedList<IndexIntoFrameTable>): IndexIntoStackTable {
+        fun getStack(tables: Tables, stackTrace: HashedList<IndexIntoFrameTable>, maxStackTraceFrames: Int = Int.MAX_VALUE): IndexIntoStackTable {
+            if (maxStackTraceFrames == 0) {
+                return -1;
+            }
             // top frame is on the highest index
             if (!map.containsKey(stackTrace)) {
                 if (stackTrace.size == 0) {
@@ -616,7 +626,8 @@ class FirefoxProfileGenerator(
                 val sub = tables.frameTable.subcategories[topFrame]!!
                 val pref = if (stackTrace.size > 1) getStack(
                     tables,
-                    HashedList(stackTrace.array, stackTrace.start, stackTrace.end - 1)
+                    HashedList(stackTrace.array, stackTrace.start, stackTrace.end - 1),
+                    maxStackTraceFrames - 1
                 ) else null
                 val index = frames.size
                 prefix.add(pref)
@@ -670,7 +681,8 @@ class FirefoxProfileGenerator(
                 tables.stackTraceTable.getStack(
                     tables,
                     it,
-                    isGCThread(sample.sampledThread)
+                    isGCThread(sample.sampledThread),
+                    config.maxStackTraceFrames
                 )
             })
         }
@@ -1043,7 +1055,18 @@ class FirefoxProfileGenerator(
                         searchable = true
                     )
                 }
-                list.add(MarkerSchema(name, display = display, data = data))
+                /*if (name == "jdk.GarbageCollection") {
+                    list.add(MarkerSchema(name, display = display, data = data,
+                        trackConfig = MarkerTrackConfig("GC Pauses", lines = listOf(MarkerTrackLineConfig("longestPause", type="bar")),
+                            isPreSelected = true)))
+                } else if (name == "jdk.CPULoad") {
+                    list.add(MarkerSchema(name, display = display, data = data,
+                        trackConfig = MarkerTrackConfig("JVM CPU Usage", lines = listOf(
+                            MarkerTrackLineConfig("jvmUser", type="line"),
+                            MarkerTrackLineConfig("jvmSystem", type="line", strokeColor = "green")), isPreSelected = true)))
+                } else{*/
+                    list.add(MarkerSchema(name, display = display, data = data))
+               // }
                 FieldMapping(mapping)
             }
         }
@@ -1058,10 +1081,16 @@ class FirefoxProfileGenerator(
         // events for the process (without a thread id)
         eventsForProcess: List<RecordedEvent>
     ): Thread {
-        val sortedEventsPerType = eventsForThread.groupByType()
+        val sortedEventsPerType = eventsForThread.groupByType().mapValues { if (config.maxMiscSamplesPerThread > -1 && it.key != "jdk.ExecutionSample") it.value.take(config.maxMiscSamplesPerThread) else it.value }
         val start = eventsForThread.first().startTime.toMillis() - intervalMicros / 1000.0
         val end = eventsForThread.last().endTime.toMillis()
-        val executionSamples = eventsWithTimeRanges(sortedEventsPerType["jdk.ExecutionSample"] ?: emptyList())
+        val executionSamples = eventsWithTimeRanges(sortedEventsPerType["jdk.ExecutionSample"] ?: emptyList()).let {
+            if (config.maxExecutionSamplesPerThread > -1) {
+                it.take(config.maxExecutionSamplesPerThread)
+            } else {
+                it
+            }
+        }
         val tables = Tables(config)
         val samplesTable = generateSamplesTable(tables, executionSamples)
         val isMainThread = thread.javaThreadId == this.mainThreadId
@@ -1070,8 +1099,8 @@ class FirefoxProfileGenerator(
             processType = if (isSystemThread(thread)) config.systemThreadType else "default",
             processStartupTime = if (isMainThread) 0.0 else start,
             processShutdownTime = end,
-            registerTime = sortedEventsPerType["jdk.ThreadStart"]?.get(0)?.startTime?.toMillis() ?: start,
-            unregisterTime = sortedEventsPerType["jdk.ThreadEnd"]?.get(0)?.startTime?.toMillis() ?: end,
+            registerTime = sortedEventsPerType["jdk.ThreadStart"]?.getOrNull(0)?.startTime?.toMillis() ?: start,
+            unregisterTime = sortedEventsPerType["jdk.ThreadEnd"]?.getOrNull(0)?.startTime?.toMillis() ?: end,
             pausedRanges = listOf(),
             name = thread.javaName ?: thread.osName,
             pid = pid,
@@ -1168,14 +1197,15 @@ class FirefoxProfileGenerator(
         return ProfileMeta(
             interval = intervalMicros / 1000.0,
             startTime = startTimeMillis,
+            endTime = endTimeMillis,
             categories = CategoryE.toCategoryList(),
             product = "JVM Application on ${jvmInformation.getString("jvmName")} ${jvmInformation.getString("jvmName")}",
-            stackwalk = 1,
+            stackwalk = 0,
             misc = "JVM version ${jvmInformation.getString("jvmVersion")}",
             oscpu = oscpu,
             platform = platform,
             markerSchema = markerSchema.toMarkerSchemaList(),
-            sourceURL = "jvm=${jvmInformation.getString("jvmArguments")}  --  java=${jvmInformation.getString("javaArguments")}",
+            arguments = "jvm=${jvmInformation.getString("jvmArguments")}  --  java=${jvmInformation.getString("javaArguments")}",
             physicalCPUs = cpuInformation.getInt("cores"),
             logicalCPUs = cpuInformation.getInt("hwThreads"),
             sampleUnits = SampleUnits(threadCPUDelta = ThreadCPUDeltaUnit.US),

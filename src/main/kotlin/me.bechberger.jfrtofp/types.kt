@@ -885,10 +885,12 @@ data class SampleUnits(
  */
 @Serializable
 data class ProfileMeta(
+    val arguments: String,
     /** The interval at which the threads are sampled. */
     val interval: Milliseconds,
     /* The number of milliseconds since midnight January 1, 1970 GMT. */
     val startTime: Milliseconds,
+    val endTime: Milliseconds,
     /*
     The process type where the Gecko profiler was started. This is the raw enum
     numeric value as defined here:
@@ -976,6 +978,8 @@ data class ProfileMeta(
     // propose a manual symbolication in the future.
     @Required
     val symbolicated: Boolean? = true,
+    @Required
+    val symbolicationNotSupported: Boolean? = false,
     // The Update channel for this build of the application.
     // This property is landed in Firefox 67, and is optional because older
     // processed profile versions may not have them. No upgrader was necessary.
@@ -1014,7 +1018,14 @@ data class ProfileMeta(
     // Profile importers can optionally add information about where they are imported from.
     // They also use the "product" field in the meta information, but this is somewhat
     // ambiguous. This field, if present, is unambiguous that it was imported.
-    val importedFrom: String? = null
+    val importedFrom: String? = null,
+
+    @Required
+    val usesOnlyOneStackType: Boolean? = true,
+    @Required
+    val doesNotUseFrameImplementation: Boolean? = true,
+    @Required
+    val sourceCodeIsNotOnSearchfox: Boolean? = true,
 )
 
 /**
@@ -1168,6 +1179,25 @@ enum class MarkerDisplayLocation {
 }
 
 @Serializable
+data class MarkerTrackLineConfig(
+    val key: String,
+    val fillColor: String? = null,
+    val strokeColor: String? = null,
+    val width: Int? = null,
+    // "line" or "bar"
+    val type: String,
+)
+
+@Serializable
+data class MarkerTrackConfig(
+    val label: String,
+    /* small, medium, large */
+    val height: String? = null,
+    val lines: List<MarkerTrackLineConfig>,
+    val isPreSelected: Boolean = false,
+)
+
+@Serializable
 data class MarkerSchema(
     // The unique identifier for this marker.
     val name: String, // e.g. "CC"
@@ -1188,7 +1218,9 @@ data class MarkerSchema(
     // The locations to display
     val display: List<MarkerDisplayLocation>,
 
-    val data: List<MarkerSchemaData>
+    val data: List<MarkerSchemaData>,
+
+    val trackConfig: MarkerTrackConfig? = null,
 )
 
 @Serializable(with = MarkerSchemaDataSerializer::class)
