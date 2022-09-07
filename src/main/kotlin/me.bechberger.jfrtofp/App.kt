@@ -3,7 +3,6 @@
  */
 package me.bechberger.jfrtofp
 
-import jdk.jfr.consumer.RecordingFile
 import java.nio.file.Files
 import java.nio.file.Path
 

@@ -8,7 +8,9 @@
  */
 package me.bechberger.jfrtofp
 
-import kotlinx.serialization.*
+import kotlinx.serialization.Required
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonContentPolymorphicSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
@@ -31,6 +33,7 @@ typealias IndexIntoCategoryList = Int
 typealias IndexIntoSubcategoryListForCategory = Int
 typealias resourceTypeEnum = Int
 typealias ThreadIndex = Int
+
 // The Tid is most often a Int. However in some cases such as merged profiles
 // we could generate a g.
 typealias Tid = Long
@@ -195,7 +198,7 @@ data class SamplesTable(
     override val stack: List<IndexIntoStackTable?>,
     // Responsiveness is the older version of eventDelay. It injects events every 16ms.
     // This is optional because newer profiles don't have that field anymore.
-    //val responsiveness: List<?Milliseconds>,
+    // val responsiveness: List<?Milliseconds>,
     // Event delay is the newer version of responsiveness. It allow us to get a finer-grained
     // view of jank by inferring what would be the delay of a hypothetical input event at
     // any point in time. It requires a pre-processing to be able to visualize properly.
@@ -220,7 +223,6 @@ data class SamplesTable(
     val threadId: List<Tid>? = null,
     override val length: Int = time.size
 ) : SamplesLikeTable
-
 
 /**
  * JS allocations are recorded as a marker payload, but in profile processing they
@@ -286,7 +288,7 @@ data class ProfilerMarkerPayload(
     val type: String,
     val startTime: Milliseconds? = null,
     val endTime: Milliseconds? = null,
-    val stack: Thread? = null,
+    val stack: Thread? = null
 )
 
 /**
@@ -396,7 +398,7 @@ data class FrameTable(
     @Required
     val column: List<Int?> = List(length) { null },
     @Required
-    val optimizations: List<Int?> = List(line.size) { null },
+    val optimizations: List<Int?> = List(line.size) { null }
 )
 
 /**
@@ -446,7 +448,7 @@ data class FuncTable(
     @Required
     val lineNumber: List<Int?> = List(length) { null },
     @Required
-    val columnNumber: List<Int?> = List(length) { null },
+    val columnNumber: List<Int?> = List(length) { null }
 )
 
 /**
@@ -526,7 +528,7 @@ data class Lib(
 data class Category(
     val name: String,
     val color: String,
-    val subcategories: List<String>,
+    val subcategories: List<String>
 )
 
 typealias CategoryList = List<Category>
@@ -607,7 +609,7 @@ data class CounterSamplesTable(
        real count[i] = sum(count[0], ..., count[i])*/
     val count: List<Long>,
     @Required
-    val length: Int = count.size,
+    val length: Int = count.size
 )
 
 @Serializable
@@ -654,7 +656,7 @@ data class ProfilerOverheadStats(
     val overheadDurations: Microseconds,
     val overheadPercentage: Microseconds,
     val profiledDuration: Microseconds,
-    val samplingCount: Microseconds,
+    val samplingCount: Microseconds
 )
 
 /**
@@ -673,7 +675,7 @@ data class ProfilerConfiguration(
     // should take care of this case while we are consuming it. If it's `0`, we
     // should revert back to the full view since there isn't enough data to show
     // the active tab view.
-    val activeTabID: TabID? = null,
+    val activeTabID: TabID? = null
 )
 
 /**
@@ -691,7 +693,7 @@ data class ProfilerOverheadSamplesTable(
     val threads: List<Microseconds>,
     val time: List<Milliseconds>,
     @Required
-    val length: Int = time.size,
+    val length: Int = time.size
 )
 
 /**
@@ -705,7 +707,7 @@ data class ProfilerOverhead(
     // There is no statistics object if there is no sample.
     val statistics: ProfilerOverheadStats? = null,
     val pid: Pid,
-    val mainThreadIndex: ThreadIndex,
+    val mainThreadIndex: ThreadIndex
 )
 
 typealias StringTable = List<String>
@@ -802,7 +804,7 @@ data class ExtensionTable(
     val id: List<String>,
     val name: List<String>,
     @Required
-    val length: Int = name.size,
+    val length: Int = name.size
 )
 
 /**
@@ -814,7 +816,7 @@ data class ProgressGraphData(
     // A percentage that describes the visual completeness of the webpage, ranging from 0% - 100%
     val percent: Double,
     // The time in milliseconds which the sample was taken.
-    val timestamp: Milliseconds,
+    val timestamp: Milliseconds
 )
 
 /**
@@ -852,7 +854,7 @@ data class VisualMetrics(
     val VisualReadiness: Int,
     val VisualComplete85: Int,
     val VisualComplete95: Int,
-    val VisualComplete99: Int,
+    val VisualComplete99: Int
 )
 
 // Units of ThreadCPUDelta values for different platforms.
@@ -1025,7 +1027,7 @@ data class ProfileMeta(
     @Required
     val doesNotUseFrameImplementation: Boolean? = true,
     @Required
-    val sourceCodeIsNotOnSearchfox: Boolean? = true,
+    val sourceCodeIsNotOnSearchfox: Boolean? = true
 )
 
 /**
@@ -1068,9 +1070,7 @@ in the profile, and the front-end could then display it in the proper manner.
 typealias ProcessProfilingLog = Map<String, String>
 typealias ProfilingLog = Map<Pid, ProcessProfilingLog>
 
-
 // ------- marker.js ---------
-
 
 // Provide different formatting options for Strings.
 @Serializable
@@ -1185,7 +1185,7 @@ data class MarkerTrackLineConfig(
     val strokeColor: String? = null,
     val width: Int? = null,
     // "line" or "bar"
-    val type: String,
+    val type: String
 )
 
 @Serializable
@@ -1194,7 +1194,7 @@ data class MarkerTrackConfig(
     /* small, medium, large */
     val height: String? = null,
     val lines: List<MarkerTrackLineConfig>,
-    val isPreSelected: Boolean = false,
+    val isPreSelected: Boolean = false
 )
 
 @Serializable
@@ -1220,7 +1220,7 @@ data class MarkerSchema(
 
     val data: List<MarkerSchemaData>,
 
-    val trackConfig: MarkerTrackConfig? = null,
+    val trackConfig: MarkerTrackConfig? = null
 )
 
 @Serializable(with = MarkerSchemaDataSerializer::class)
@@ -1310,7 +1310,6 @@ data class GPUMarkerPayload(
  * specifying the start, the other specifying the end of a specific tracing
  * marker.
  */
-
 
 @Serializable
 data class PaintProfilerMarkerTracing(
@@ -1439,7 +1438,6 @@ data class GCMajorCompleted(
     // Percentage of time the mutator ran in a 50ms window.
     val mmu_50ms: Double,
 
-
     // The duration of each phase
     // only present in non-gecko
     val phase_times: Map<String, Microseconds>? = null,
@@ -1486,7 +1484,6 @@ data class NativeAllocationPayload(
     val memoryAddress: Long? = null,
     val threadId: Long? = null
 ) : MarkerPayload
-
 
 // gecko-profile.js
 
