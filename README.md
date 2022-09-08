@@ -1,4 +1,6 @@
 # jfrtofp
+[![Maven Package](https://jitpack.io/v/parttimenerd/jfrtofp.svg)](https://jitpack.io/#parttimenerd/jfrtofp)
+
 JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
 
 ## Basic Usage
