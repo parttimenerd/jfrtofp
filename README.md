@@ -35,12 +35,12 @@ But this is considered experimental and not the main focus of this project.
 <dependency>
   <groupId>com.github.parttimenerd</groupId>
   <artifactId>jfrtofp</artifactId>
-  <version>master-SNAPSHOT</version>
+  <version>main-SNAPSHOT</version>
 </dependency>
 ```
 or
 ```groovy
-implementation 'com.github.parttimenerd:jfrtofp:master-SNAPSHOT'
+implementation 'com.github.parttimenerd:jfrtofp:main-SNAPSHOT'
 ```
 from [JitPack](https://jitpack.io/#parttimenerd/jfrtofp).
 
