@@ -62,14 +62,12 @@ dependencies {
     // This dependency is used by the application.
     implementation("org.junit.jupiter:junit-jupiter:5.8.1")
 
-    // Use the Kotlin test library.
-    // testImplementation("org.jetbrains.kotlin:kotlin-test")
-
     // Use the Kotlin JUnit integration.
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.4.0-RC")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.3")
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.21.0")
+    implementation("info.picocli:picocli:4.6.3")
 }
 
 tasks.test {
@@ -78,7 +76,7 @@ tasks.test {
 
 application {
     // Define the main class for the application.
-    mainClass.set("me.bechberger.jfrtofp.Main")
+    mainClass.set("me.bechberger.jfrtofp.MainKt")
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {

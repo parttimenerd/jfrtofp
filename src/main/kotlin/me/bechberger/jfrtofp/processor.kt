@@ -1398,7 +1398,7 @@ fun Any?.toJsonElement(): JsonElement = when (this) {
 }
 
 private val jsonFormat = Json {
-    prettyPrint = true
+    prettyPrint = false
     encodeDefaults = true
     explicitNulls = false
 }

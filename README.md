@@ -1,5 +1,48 @@
 # jfrtofp
-JFR to [Firefox Profiler](profiler.firefox.com) converter
+JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
+
+## Basic Usage
+Download the latest `jfrtofp-all.jar` release and simply pass the JFR file as its first argument:
+
+```sh
+  java -jar jfrtofp-all.jar samples/small_profile.jfr
+```
+
+This will produce a `samples/small_profile.json.gz` file, you can customize the output file 
+by passing the `--output <file>` option.
+
+There is the possibility to produce [Speedscope](https://www.speedscope.app/) files as well, by passing the "--mode speedscope" option:
+
+```sh
+  java -jar jfrtofp-all.jar samples/small_profile.jfr --mode speedscope
+```
+
+This will produce a `samples/small_profile.json.gz` file. 
+But this is considered experimental and not the main focus of this project.
+
+## Run from Source
+
+```sh
+  git clone https://github.com/parttimenerd/jfrtofp.git
+  cd jfrtofp
+  ./gradlew run --args="samples/small_profile.jfr"
+```
+
+## Usage as a Library
+```xml
+<dependency>
+  <groupId>me.bechberger</groupId>
+  <artifactId>jfrtofp</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+</dependency>
+```
+or
+```groovy
+implementation 'me.bechberger:jfrtofp:0.0.1-SNAPSHOT'
+```
+
+## License
+MIT
 
 ## Ideas from Andreas
 - [ ] use dates ("12:00:34.2") instead of just seconds ("34.2")
