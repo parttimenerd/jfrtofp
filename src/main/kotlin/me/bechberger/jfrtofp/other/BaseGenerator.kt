@@ -18,7 +18,7 @@ internal val jsonFormat = Json {
     encodeDefaults = true
 }
 
-abstract class BaseProcessor(jfrFile: Path) {
+abstract class BaseGenerator(jfrFile: Path) {
 
     internal val events = RecordingFile.readAllEvents(jfrFile)
 
@@ -60,7 +60,9 @@ abstract class BaseProcessor(jfrFile: Path) {
 
     internal class HashedFrame(val frame: RecordedFrame) {
         override fun equals(other: Any?): Boolean {
-            return super.equals(other) || other is HashedFrame && frame.type == other.frame.type && frame.method.name == other.frame.method.name && frame.method.descriptor == other.frame.method.descriptor
+            return super.equals(other) || other is HashedFrame &&
+                frame.type == other.frame.type &&
+                frame.method.name == other.frame.method.name && frame.method.descriptor == other.frame.method.descriptor
         }
 
         override fun hashCode(): Int {
@@ -70,7 +72,9 @@ abstract class BaseProcessor(jfrFile: Path) {
 
     internal class HashedMethod(val method: RecordedMethod) {
         override fun equals(other: Any?): Boolean {
-            return super.equals(other) || other is HashedMethod && method.name == other.method.name && method.descriptor == other.method.descriptor && method.type.name == other.method.type.name
+            return super.equals(other) || other is HashedMethod &&
+                method.name == other.method.name &&
+                method.descriptor == other.method.descriptor && method.type.name == other.method.type.name
         }
 
         override fun hashCode(): Int {

@@ -1,6 +1,7 @@
 package me.bechberger.jfrtofp
 
-import me.bechberger.jfrtofp.other.SpeedscopeProcessor
+import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
+import me.bechberger.jfrtofp.other.SpeedscopeGenerator
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Option
@@ -23,7 +24,7 @@ class Main : Callable<Int> {
     @Option(names = ["-o", "--output"], description = ["The output file"])
     var output: Path? = null
 
-    @Option(names = ["--mode", "-m"], description = ["fp, speedscope"])
+    @Option(names = ["--mode", "-m"], description = ["fp, speedscope", "d3-flamegraph"])
     var mode = "fp"
 
     override fun call(): Int {
@@ -31,9 +32,7 @@ class Main : Callable<Int> {
             "fp" -> {
                 return runFP()
             }
-            "speedscope" -> {
-                println("Converting to speedscope")
-                println(output)
+            "speedscope", "d3-flamegraph" -> {
                 if (output != null && !output!!.toString().endsWith(".json")) {
                     println("Output file must end with .json")
                     return 1
@@ -41,7 +40,13 @@ class Main : Callable<Int> {
                 Files.write(
                     output
                         ?: Path.of(file.toString().replace(".jfr", ".json")),
-                    SpeedscopeProcessor(file).generate().toByteArray()
+                    (
+                        when (mode) {
+                            "speedscope" -> SpeedscopeGenerator(file)
+                            "d3-flamegraph" -> D3FlamegraphGenerator(file)
+                            else -> throw IllegalArgumentException("Unknown mode $mode")
+                        }
+                        ).generate().toByteArray()
                 )
                 return 0
             }
@@ -63,4 +68,5 @@ class Main : Callable<Int> {
     }
 }
 
+@Suppress("SpreadOperator")
 fun main(args: Array<String>): Unit = exitProcess(CommandLine(Main()).execute(*args))

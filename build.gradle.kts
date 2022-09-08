@@ -43,6 +43,8 @@ apply { plugin("com.github.johnrengelman.shadow") }
 
 detekt {
     buildUponDefaultConfig = true // preconfigure defaults
+    config = files("$rootDir/config/detekt/detekt.yml")
+    autoCorrect = true
 }
 
 tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {

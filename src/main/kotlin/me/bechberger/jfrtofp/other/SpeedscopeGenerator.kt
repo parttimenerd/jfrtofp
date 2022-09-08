@@ -5,8 +5,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import me.bechberger.jfrtofp.estimateIntervalInMicros
-import me.bechberger.jfrtofp.other.BaseProcessor.Companion.shortMethodString
-import me.bechberger.jfrtofp.pkg
 import java.nio.file.Path
 import kotlin.math.max
 
@@ -19,25 +17,6 @@ internal object Speedscope {
 
     @Serializable
     internal sealed class IProfile
-
-    @Serializable
-    @SerialName("sampled")
-    internal class SampledProfile(
-        /* Name of the profile. Typically a filename for the source of the profile. */
-        val name: String,
-        /* All event values will be relative to this startValue. */
-        val startValue: Long,
-        // The final value of the profile. This will typically be a timestamp. This
-        // must be greater than or equal to the startValue. This is useful in
-        // situations where the recorded profile extends past the end of the recorded
-        // events, which may happen if nothing was happening at the end of the
-        // profile.
-        val endValue: Long,
-        val samples: List<List<Int>>,
-        // kind of the self samples
-        val weights: List<Int>,
-        val unit: String = "microseconds"
-    ) : IProfile()
 
     @Serializable
     internal data class Event(
@@ -60,6 +39,7 @@ internal object Speedscope {
     @Serializable
     internal data class File(
         val version: String = "0.6.0",
+        @Suppress("ConstructorParameterNaming")
         val `$schema`: String = "https://www.speedscope.app/file-format-schema.json",
         val shared: Shared = Shared(),
         val profiles: MutableList<IProfile> = mutableListOf(),
@@ -68,13 +48,13 @@ internal object Speedscope {
         val exporter: String? = "jfrplugin"
     )
 
-    internal data class Stack(val callStack: List<BaseProcessor.HashedMethod> = listOf()) {
+    internal data class Stack(val callStack: List<BaseGenerator.HashedMethod> = listOf()) {
         enum class Decision(val short: String) {
             OPEN("O"),
             ClOSE("C")
         }
 
-        fun computeDecisions(other: Stack): List<Pair<BaseProcessor.HashedMethod, Decision>> {
+        fun computeDecisions(other: Stack): List<Pair<BaseGenerator.HashedMethod, Decision>> {
             this.callStack.forEachIndexed { index, method ->
                 if (other.callStack.size > index) {
                     if (method != other.callStack[index]) {
@@ -96,7 +76,7 @@ internal object Speedscope {
     }
 }
 
-class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
+class SpeedscopeGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
     /**
      * Returns the traces in a format suitable for speedscope
      * (https://github.com/jlfwong/speedscope/blob/main/src/lib/file-format-spec.ts)
@@ -104,12 +84,9 @@ class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
      * Some documentation borrowed from this specification
      */
     override fun generate(): String {
-        val (samples, starts, ends) = executionSamplesWithStartAndEnd()
+        val (samples, starts, _) = executionSamplesWithStartAndEnd()
         val ovStart = starts.values.min()
-        val ovEnd = ends.values.max()
         val perThread = samples.perThread()
-        val possibleThreads = perThread.keys.sortedBy { it.javaThreadId }
-        val threadToIndex = possibleThreads.withIndex().associate { it.value.id to it.index }
         val estimatedIntervalInMicros = perThread.estimateIntervalInMicros()
 
         val frames = mutableListOf<Speedscope.Frame>()
@@ -125,8 +102,6 @@ class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
 
         val profiles = mutableListOf<Speedscope.IProfile>()
         for ((thread, threadSamples) in perThread) {
-            val startTime = 0
-            val endTime = ends[thread.id]!!
             var currentStack = Speedscope.Stack()
             val events = mutableListOf<Speedscope.Event>()
             var lastEndTime = 0L
@@ -135,7 +110,8 @@ class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
                 for (action in actions) {
                     events.add(
                         Speedscope.Event(
-                            action.second.short, max(0, time),
+                            action.second.short,
+                            max(0, time),
                             getFrame(action.first.method, null)
                         )
                     )
@@ -143,8 +119,7 @@ class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
             }
 
             for (
-                (sample, startTime, end) in threadSamples.withTiming(estimatedIntervalInMicros)
-                    .sortedBy { it.startTime }
+                (sample, startTime, _) in threadSamples.withTiming(estimatedIntervalInMicros).sortedBy { it.startTime }
             ) {
                 val newStack = Speedscope.Stack(sample.stackTrace.frames.map { HashedMethod(it.method) }.reversed())
                 val actions = currentStack.computeDecisions(newStack)
@@ -169,9 +144,10 @@ class SpeedscopeProcessor(jfrFile: Path) : BaseProcessor(jfrFile) {
             )
         }
 
-        return return jsonFormat.encodeToString(
+        return jsonFormat.encodeToString(
             Speedscope.File(
-                shared = Speedscope.Shared(frames), profiles = profiles,
+                shared = Speedscope.Shared(frames),
+                profiles = profiles,
                 activeProfileIndex = profiles.find { it is Speedscope.EventedProfile && it.name == "Thread main" }
                     ?.let { profiles.indexOf(it) } ?: 0
             )

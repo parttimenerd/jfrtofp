@@ -71,7 +71,7 @@ class FileCache(val location: Path? = null, val maxSize: Long = 2_000_000_000, v
     internal fun hashSum(file: Path): String {
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(file).use {
-            val buffer = ByteArray(1024)
+            val buffer = ByteArray(BUFFER_SIZE)
             var read = it.read(buffer)
             while (read != -1) {
                 digest.update(buffer, 0, read)
@@ -83,5 +83,9 @@ class FileCache(val location: Path? = null, val maxSize: Long = 2_000_000_000, v
 
     internal fun hashSum(config: Config): String {
         return config.hashCode().toString()
+    }
+
+    companion object {
+        const val BUFFER_SIZE = 1024
     }
 }
