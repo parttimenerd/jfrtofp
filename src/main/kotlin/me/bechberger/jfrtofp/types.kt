@@ -794,7 +794,7 @@ data class Thread(
     init {
         assert(jsAllocations.isNullOrEmpty())
         assert(nativeAllocations.isNullOrEmpty())
-        assert(samples.isNullOrEmpty())
+//        assert(samples.isNullOrEmpty())
     }
 }
 

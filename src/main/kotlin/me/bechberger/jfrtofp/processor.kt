@@ -16,14 +16,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToStream
+import java.io.OutputStream
 import java.lang.reflect.Modifier
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.NavigableMap
 import java.util.Optional
 import java.util.TreeMap
 import java.util.stream.LongStream
-import kotlin.Comparator
+import java.util.zip.GZIPOutputStream
+import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
@@ -122,7 +126,7 @@ data class Config(
     val maxThreads: Int = 100,
     val omitEventThreadProperty: Boolean = true,
     val maxExecutionSamplesPerThread: Int = 2,
-    val maxMiscSamplesPerThread: Int = 0
+    val maxMiscSamplesPerThread: Int = 0,
 ) {
 
     fun isRelevantForJava(func: RecordedMethod): Boolean {
@@ -1346,16 +1350,6 @@ class FirefoxProfileGenerator(
         )
     }
 
-    private val jsonFormat = Json {
-        prettyPrint = true
-        encodeDefaults = true
-        explicitNulls = false
-    }
-
-    fun generateJSON(): String {
-        return jsonFormat.encodeToString(generate())
-    }
-
     private fun profileMeta(markerSchema: MarkerSchemaWrapper): ProfileMeta {
         // TODO: include markers
         return ProfileMeta(
@@ -1401,4 +1395,34 @@ fun Any?.toJsonElement(): JsonElement = when (this) {
     is Number -> JsonPrimitive(this)
     is Boolean -> JsonPrimitive(this)
     else -> JsonPrimitive(toString())
+}
+
+private val jsonFormat = Json {
+    prettyPrint = true
+    encodeDefaults = true
+    explicitNulls = false
+}
+
+fun Profile.generateJSON(): String {
+    return jsonFormat.encodeToString(this)
+}
+
+fun Profile.encodeToJSONStream(output: OutputStream) {
+    jsonFormat.encodeToStream(this, output)
+}
+
+fun Profile.encodeToZippedStream(output: OutputStream, byteArray: ByteArray? = null) {
+    GZIPOutputStream(output).use { zipped ->
+        encodeToJSONStream(zipped)
+    }
+}
+
+fun Profile.store(path: Path) {
+    Files.newOutputStream(path).use { stream ->
+        when (path.extension) {
+            "json" -> encodeToJSONStream(stream)
+            "gz" -> encodeToZippedStream(stream)
+            else -> throw IllegalArgumentException("Unknown file extension: ${path.extension}")
+        }
+    }
 }
