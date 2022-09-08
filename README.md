@@ -31,15 +31,16 @@ But this is considered experimental and not the main focus of this project.
 ## Usage as a Library
 ```xml
 <dependency>
-  <groupId>me.bechberger</groupId>
+  <groupId>com.github.parttimenerd</groupId>
   <artifactId>jfrtofp</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>master-SNAPSHOT</version>
 </dependency>
 ```
 or
 ```groovy
-implementation 'me.bechberger:jfrtofp:0.0.1-SNAPSHOT'
+implementation 'com.github.parttimenerd:jfrtofp:master-SNAPSHOT'
 ```
+from [JitPack](https://jitpack.io/#parttimenerd/jfrtofp).
 
 ## License
 MIT

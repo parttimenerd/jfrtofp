@@ -7,6 +7,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Base64
 import kotlin.io.path.extension
+import kotlin.streams.asSequence
 
 /** cache the conversion result for JFR files */
 class FileCache(val location: Path? = null, val maxSize: Long = 2_000_000_000, val extension: String = ".json.gz") {
@@ -51,7 +52,7 @@ class FileCache(val location: Path? = null, val maxSize: Long = 2_000_000_000, v
 
     internal fun ensureFreeSpace(amount: Long) {
         while (cacheSize() > maxSize - amount) {
-            val oldest = Files.list(tmpLocation).toList().minByOrNull { Files.getLastModifiedTime(it).toMillis() }
+            val oldest = Files.list(tmpLocation).asSequence().minByOrNull { Files.getLastModifiedTime(it).toMillis() }
             if (oldest != null) {
                 Files.delete(oldest)
             }
