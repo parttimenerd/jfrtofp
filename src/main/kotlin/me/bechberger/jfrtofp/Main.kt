@@ -2,8 +2,10 @@ package me.bechberger.jfrtofp
 
 import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
 import me.bechberger.jfrtofp.other.SpeedscopeGenerator
+import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import picocli.CommandLine.Command
+import picocli.CommandLine.Mixin
 import picocli.CommandLine.Option
 import picocli.CommandLine.Parameters
 import java.nio.file.Files
@@ -26,6 +28,8 @@ class Main : Callable<Int> {
 
     @Option(names = ["--mode", "-m"], description = ["fp, speedscope", "d3-flamegraph"])
     var mode = "fp"
+
+    @Mixin var config: ConfigMixin = ConfigMixin()
 
     override fun call(): Int {
         when (mode) {
@@ -63,10 +67,19 @@ class Main : Callable<Int> {
             return 1
         }
         val outputFile = output ?: Path.of(file.toString().replace(".jfr", ".json.gz"))
-        FirefoxProfileGenerator(file, config = Config()).generate().store(outputFile)
+        FirefoxProfileGenerator(file, config = config.toConfig()).generate().store(outputFile)
         return 0
+    }
+
+    companion object {
+        fun parseConfig(args: Array<String>): Config {
+            val main = Main()
+            CommandLine(main).parseArgs(*args)
+            return main.config.toConfig()
+        }
+
+        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().toTypedArray())
     }
 }
 
-@Suppress("SpreadOperator")
 fun main(args: Array<String>): Unit = exitProcess(CommandLine(Main()).execute(*args))

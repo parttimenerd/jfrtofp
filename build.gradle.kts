@@ -70,6 +70,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.3")
     detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.21.0")
     implementation("info.picocli:picocli:4.6.3")
+    implementation("org.jline:jline-reader:3.21.0")
 }
 
 tasks.test {

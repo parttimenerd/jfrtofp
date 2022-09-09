@@ -1,18 +1,5 @@
 package me.bechberger.jfrtofp
 
-import java.io.InputStream
-import java.io.OutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
-import java.lang.reflect.Modifier
-import java.nio.file.Files
-import java.nio.file.Path
-import java.time.Instant
-import java.util.NavigableMap
-import java.util.Optional
-import java.util.TreeMap
-import java.util.stream.LongStream
-import java.util.zip.GZIPOutputStream
 import jdk.jfr.ValueDescriptor
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -30,13 +17,27 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import picocli.CommandLine.Option
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
+import java.lang.reflect.Modifier
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.util.NavigableMap
+import java.util.Optional
+import java.util.TreeMap
+import java.util.stream.LongStream
+import java.util.zip.GZIPOutputStream
+import picocli.CommandLine
 import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
 import kotlin.math.roundToLong
 import kotlin.streams.toList
-
 
 fun Instant.toMicros(): Long = epochSecond * 1000000 + nano / 1000
 
@@ -110,14 +111,33 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
     }
 }
 
+@CommandLine.Command
+class ConfigMixin {
+    @Option(names = ["-n", "--non-project"], description = ["non project package prefixes"])
+    var nonProjectPackagePrefixes: List<String> =
+        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.")
+    @Option(names = ["--max-exec-samples"], description = ["Maximum number of exec samples per thread"])
+    var maxExecutionSamplesPerThread: Int = -1
+    @Option(names = ["--max-misc-samples"], description = ["Maximum number of misc samples per thread"])
+    var maxMiscSamplesPerThread: Int = -1
+
+    fun toConfig() = Config(
+        nonProjectPackagePrefixes = nonProjectPackagePrefixes,
+        maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
+        maxMiscSamplesPerThread = maxMiscSamplesPerThread
+    )
+}
+
 data class Config(
     val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_HEAP),
     val systemThreadType: String = "vr",
     /** time range of a given sample is at max 2.0 * interval */
     val maxIntervalFactor: Double = 2.0,
     val useNonProjectCategory: Boolean = true,
+    val nonProjectPackagePrefixes: List<String> =
+        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring."),
     val isNonProjectType: (RecordedClass) -> Boolean = { k ->
-        listOf("java.", "java.", "kotlin.", "jdk.", "com.google.", "org.apache.").any { k.name.startsWith(it) }
+        nonProjectPackagePrefixes.any { k.name.startsWith(it) }
     },
     val enableMarkers: Boolean = true,
     /** an objectsample weigth will be associated with the nearest stack trace
@@ -129,8 +149,8 @@ data class Config(
     val maxStackTraceFrames: Int = Int.MAX_VALUE,
     val maxThreads: Int = 100,
     val omitEventThreadProperty: Boolean = true,
-    val maxExecutionSamplesPerThread: Int = 2,
-    val maxMiscSamplesPerThread: Int = 0,
+    val maxExecutionSamplesPerThread: Int = -1,
+    val maxMiscSamplesPerThread: Int = -1
 ) {
 
     fun isRelevantForJava(func: RecordedMethod): Boolean {
@@ -1252,7 +1272,9 @@ class FirefoxProfileGenerator(
         eventsForProcess: List<RecordedEvent>
     ): Thread {
         val sortedEventsPerType = eventsForThread.groupByType().mapValues {
-            if (config.maxMiscSamplesPerThread > -1 && it.key != "jdk.ExecutionSample") it.value.take(config.maxMiscSamplesPerThread) else it.value
+            if (config.maxMiscSamplesPerThread > -1 && it.key != "jdk.ExecutionSample") it.value.take(
+                config.maxMiscSamplesPerThread
+            ) else it.value
         }
         val start = eventsForThread.first().startTime.toMillis() - intervalMicros / 1000.0
         val end = eventsForThread.last().endTime.toMillis()
@@ -1367,7 +1389,9 @@ class FirefoxProfileGenerator(
             oscpu = oscpu,
             platform = platform,
             markerSchema = markerSchema.toMarkerSchemaList(),
-            arguments = "jvm=${jvmInformation.getString("jvmArguments")}  --  java=${jvmInformation.getString("javaArguments")}",
+            arguments = "jvm=${jvmInformation.getString("jvmArguments")}  --  java=${jvmInformation.getString(
+                "javaArguments"
+            )}",
             physicalCPUs = cpuInformation.getInt("cores"),
             logicalCPUs = cpuInformation.getInt("hwThreads"),
             sampleUnits = SampleUnits(threadCPUDelta = ThreadCPUDeltaUnit.US),
@@ -1434,7 +1458,6 @@ fun Profile.encodeToZippedStream(): InputStream {
     Runnable { encodeToZippedStream(out) }.run()
     return input
 }
-
 
 fun Profile.store(path: Path) {
     Files.newOutputStream(path).use { stream ->
