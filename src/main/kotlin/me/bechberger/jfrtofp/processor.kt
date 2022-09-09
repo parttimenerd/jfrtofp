@@ -1,5 +1,18 @@
 package me.bechberger.jfrtofp
 
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
+import java.lang.reflect.Modifier
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.util.NavigableMap
+import java.util.Optional
+import java.util.TreeMap
+import java.util.stream.LongStream
+import java.util.zip.GZIPOutputStream
 import jdk.jfr.ValueDescriptor
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -17,22 +30,13 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
-import java.io.OutputStream
-import java.lang.reflect.Modifier
-import java.nio.file.Files
-import java.nio.file.Path
-import java.time.Instant
-import java.util.NavigableMap
-import java.util.Optional
-import java.util.TreeMap
-import java.util.stream.LongStream
-import java.util.zip.GZIPOutputStream
 import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
 import kotlin.math.roundToLong
 import kotlin.streams.toList
+
 
 fun Instant.toMicros(): Long = epochSecond * 1000000 + nano / 1000
 
@@ -1416,6 +1420,21 @@ fun Profile.encodeToZippedStream(output: OutputStream, byteArray: ByteArray? = n
         encodeToJSONStream(zipped)
     }
 }
+
+fun Profile.encodeToJSONStream(): InputStream {
+    val input = PipedInputStream()
+    val out = PipedOutputStream(input)
+    Runnable { encodeToJSONStream(out) }.run()
+    return input
+}
+
+fun Profile.encodeToZippedStream(): InputStream {
+    val input = PipedInputStream()
+    val out = PipedOutputStream(input)
+    Runnable { encodeToZippedStream(out) }.run()
+    return input
+}
+
 
 fun Profile.store(path: Path) {
     Files.newOutputStream(path).use { stream ->
