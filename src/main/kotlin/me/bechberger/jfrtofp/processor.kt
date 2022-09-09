@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import picocli.CommandLine
 import picocli.CommandLine.Option
 import java.io.InputStream
 import java.io.OutputStream
@@ -31,7 +32,7 @@ import java.util.Optional
 import java.util.TreeMap
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
-import picocli.CommandLine
+import org.jline.reader.impl.DefaultParser
 import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
@@ -126,6 +127,16 @@ class ConfigMixin {
         maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
         maxMiscSamplesPerThread = maxMiscSamplesPerThread
     )
+
+    companion object {
+        fun parseConfig(args: Array<String>): Config {
+            val main = Main()
+            CommandLine(main).parseArgs(*args)
+            return main.config.toConfig()
+        }
+
+        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().toTypedArray())
+    }
 }
 
 data class Config(
@@ -719,7 +730,11 @@ class FirefoxProfileGenerator(
             return getStack(tables, HashedList(list.array, 0, commonCount))
         }
 
-        private fun getHashedFrameList(tables: Tables, stackTrace: RecordedStackTrace, isInGCThread: Boolean) =
+        private fun getHashedFrameList(
+            tables: Tables,
+            stackTrace: RecordedStackTrace,
+            isInGCThread: Boolean
+        ) =
             HashedList(stackTrace.frames.reversed().map { tables.frameTable.getFrame(tables, it, isInGCThread) })
 
         fun getStack(
@@ -968,7 +983,12 @@ class FirefoxProfileGenerator(
 
     enum class MarkerType(
         val type: MarkerFormatType,
-        val converter: (event: RecordedObject, field: String, prof: FirefoxProfileGenerator, tables: Tables) -> Any = { event, field, prof, tables ->
+        val converter: (
+            event: RecordedObject,
+            field: String,
+            prof: FirefoxProfileGenerator,
+            tables: Tables
+        ) -> Any = { event, field, prof, tables ->
             event.getValue<Any?>(field).toString()
         }
     ) {
@@ -1152,7 +1172,12 @@ class FirefoxProfileGenerator(
             }
         )
 
-        fun convert(event: RecordedObject, field: String, prof: FirefoxProfileGenerator, tables: Tables): Any {
+        fun convert(
+            event: RecordedObject,
+            field: String,
+            prof: FirefoxProfileGenerator,
+            tables: Tables
+        ): Any {
             return try {
                 converter(event, field, prof, tables)
             } catch (e: Exception) {

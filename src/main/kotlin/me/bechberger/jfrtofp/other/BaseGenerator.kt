@@ -40,7 +40,11 @@ abstract class BaseGenerator(jfrFile: Path) {
     }
 
     /** timing in micro seconds */
-    internal data class RecordedEventWithTiming(val event: RecordedEvent, val startTime: Long, val endTime: Long)
+    internal data class RecordedEventWithTiming(
+        val event: RecordedEvent,
+        val startTime: Long,
+        val endTime: Long
+    )
 
     internal fun List<RecordedEvent>.withTiming(defaultTiming: Long): List<RecordedEventWithTiming> {
         if (isEmpty()) {

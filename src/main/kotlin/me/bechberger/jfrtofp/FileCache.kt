@@ -10,7 +10,11 @@ import kotlin.io.path.extension
 import kotlin.streams.asSequence
 
 /** cache the conversion result for JFR files */
-class FileCache(val location: Path? = null, val maxSize: Long = 2_000_000_000, val extension: String = ".json.gz") {
+class FileCache(
+    val location: Path? = null,
+    val maxSize: Long = 2_000_000_000,
+    val extension: String = ".json.gz"
+) {
 
     val tmpLocation = location ?: Files.createTempDirectory("jfrtofp")
     init {

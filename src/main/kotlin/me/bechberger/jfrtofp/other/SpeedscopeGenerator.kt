@@ -10,7 +10,12 @@ import kotlin.math.max
 
 internal object Speedscope {
     @Serializable
-    internal data class Frame(val name: String, val file: String?, val line: Int?, val col: Int? = null)
+    internal data class Frame(
+        val name: String,
+        val file: String?,
+        val line: Int?,
+        val col: Int? = null
+    )
 
     @Serializable
     internal data class Shared(val frames: MutableList<Frame> = mutableListOf())

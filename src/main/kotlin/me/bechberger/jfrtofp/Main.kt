@@ -70,16 +70,6 @@ class Main : Callable<Int> {
         FirefoxProfileGenerator(file, config = config.toConfig()).generate().store(outputFile)
         return 0
     }
-
-    companion object {
-        fun parseConfig(args: Array<String>): Config {
-            val main = Main()
-            CommandLine(main).parseArgs(*args)
-            return main.config.toConfig()
-        }
-
-        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().toTypedArray())
-    }
 }
 
 fun main(args: Array<String>): Unit = exitProcess(CommandLine(Main()).execute(*args))
