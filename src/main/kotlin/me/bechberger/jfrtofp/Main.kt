@@ -2,7 +2,6 @@ package me.bechberger.jfrtofp
 
 import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
 import me.bechberger.jfrtofp.other.SpeedscopeGenerator
-import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Mixin

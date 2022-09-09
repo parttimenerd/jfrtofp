@@ -91,6 +91,8 @@ tasks.register<Copy>("copyHooks") {
     into(".git/hooks")
 }
 
+tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))
+
 publishing {
     repositories {
         maven {

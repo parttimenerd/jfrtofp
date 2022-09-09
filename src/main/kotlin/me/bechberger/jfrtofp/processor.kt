@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import picocli.CommandLine.Option
 import java.io.InputStream
@@ -32,7 +33,6 @@ import java.util.Optional
 import java.util.TreeMap
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
-import org.jline.reader.impl.DefaultParser
 import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
