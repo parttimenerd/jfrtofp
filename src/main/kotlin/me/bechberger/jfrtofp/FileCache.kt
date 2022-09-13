@@ -11,7 +11,7 @@ import kotlin.streams.asSequence
 
 /** cache the conversion result for JFR files */
 class FileCache(
-    val location: Path? = null,
+    location: Path? = null,
     val maxSize: Long = 2_000_000_000,
     val extension: String = ".json.gz"
 ) {
@@ -30,11 +30,13 @@ class FileCache(
     }
 
     fun get(jfrFile: Path, config: Config): Path {
-        val filePath = filePath(jfrFile, config)
-        if (!Files.exists(filePath)) {
-            create(jfrFile, config, filePath)
+        synchronized(this) {
+            val filePath = filePath(jfrFile, config)
+            if (!Files.exists(filePath)) {
+                create(jfrFile, config, filePath)
+            }
+            return filePath
         }
-        return filePath
     }
 
     fun has(jfrFile: Path, config: Config): Boolean {
