@@ -31,18 +31,17 @@ But this is considered experimental and not the main focus of this project.
 ```
 
 ## Usage as a Library
-```xml
-<dependency>
-  <groupId>com.github.parttimenerd</groupId>
-  <artifactId>jfrtofp</artifactId>
-  <version>main-SNAPSHOT</version>
-</dependency>
-```
-or
 ```groovy
-implementation 'com.github.parttimenerd:jfrtofp:main-SNAPSHOT'
+dependencies {
+    implementation 'com.github.parttimenerd:jfrtofp-server:main-SNAPSHOT'
+}
+
+repositories {
+    maven {
+        url = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+    }
+}
 ```
-from [JitPack](https://jitpack.io/#parttimenerd/jfrtofp).
 
 ## License
 MIT
