@@ -85,7 +85,7 @@ class FileCache(
                 read = it.read(buffer)
             }
         }
-        return Base64.getEncoder().encodeToString(digest.digest())
+        return Base64.getEncoder().encodeToString(digest.digest()).replace("/", "_")
     }
 
     internal fun hashSum(config: Config): String {
