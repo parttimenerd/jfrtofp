@@ -1,27 +1,27 @@
 package me.bechberger.jfrtofp
 
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.extension
 import kotlin.streams.asSequence
 
 /** cache the conversion result for JFR files */
 class FileCache(
     location: Path? = null,
-    val maxSize: Long = 2_000_000_000,
+    maxSize: Long = 2_000_000_000,
     val extension: String = ".json.gz"
 ) {
-
-    val tmpLocation = location ?: Files.createTempDirectory("jfrtofp")
+    val tmpLocation = location ?: DEFAULT_LOCATION
     init {
         try {
             Files.createDirectories(tmpLocation)
         } catch (_: IOException) {}
     }
+    private val maxSize = AtomicLong(maxSize)
 
     fun close() {
         try {
@@ -44,20 +44,19 @@ class FileCache(
     }
 
     internal fun create(jfrFile: Path, config: Config, filePath: Path) {
-        ByteArrayOutputStream().use { baas ->
+        Files.newOutputStream(filePath).use { baas ->
             val profile = FirefoxProfileGenerator(jfrFile, config).generate()
             when (filePath.extension) {
                 "json" -> profile.encodeToJSONStream(baas)
                 "gz" -> profile.encodeToZippedStream(baas)
                 else -> throw IllegalArgumentException("Unknown file extension: ${filePath.extension}")
             }
-            ensureFreeSpace(baas.size().toLong())
-            Files.write(filePath, baas.toByteArray())
+            ensureFreeSpace(0)
         }
     }
 
     internal fun ensureFreeSpace(amount: Long) {
-        while (cacheSize() > maxSize - amount) {
+        while (cacheSize() > Math.max(0, maxSize.get() - amount)) {
             val oldest = Files.list(tmpLocation).asSequence().minByOrNull { Files.getLastModifiedTime(it).toMillis() }
             if (oldest != null) {
                 Files.delete(oldest)
@@ -92,7 +91,15 @@ class FileCache(
         return config.hashCode().toString()
     }
 
+    fun setMaxSize(size: Long) {
+        maxSize.set(size)
+        ensureFreeSpace(0)
+    }
+
+    fun getMaxSize() = maxSize.get()
+
     companion object {
         const val BUFFER_SIZE = 1024
+        val DEFAULT_LOCATION = Files.createTempDirectory("jfrtofp")
     }
 }

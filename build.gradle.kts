@@ -94,7 +94,7 @@ application {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = "1.8"
+    kotlinOptions.jvmTarget = "11"
 }
 
 tasks.register<Copy>("copyHooks") {
@@ -107,7 +107,6 @@ tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
-            from(components["java"])
             pom {
                 name.set("jfrtofp")
                 packaging = "jar"
@@ -133,6 +132,7 @@ publishing {
                     url.set("https://github.com/parttimenerd/jfrtofp")
                 }
             }
+            from(components["java"])
         }
     }
     repositories {
