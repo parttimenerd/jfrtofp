@@ -20,10 +20,7 @@ internal val jsonFormat = Json {
 
 abstract class BaseGenerator(jfrFile: Path) {
 
-    internal val events = RecordingFile.readAllEvents(jfrFile)
-
-    internal fun List<RecordedEvent>.threads(): List<RecordedThread> =
-        map { it.sampledThread }.distinct().sortedBy { it.javaThreadId }
+    private val events = RecordingFile.readAllEvents(jfrFile)
 
     internal fun List<RecordedEvent>.perThread(): Map<RecordedThread, List<RecordedEvent>> =
         groupBy { it.sampledThread }
@@ -62,6 +59,7 @@ abstract class BaseGenerator(jfrFile: Path) {
         return map { RecordedEventWithTiming(it, it.startTime.toMicros(), it.endTime.toMicros() + defaultTiming) }
     }
 
+    @Suppress("unused")
     internal class HashedFrame(val frame: RecordedFrame) {
         override fun equals(other: Any?): Boolean {
             return super.equals(other) || other is HashedFrame &&
@@ -92,8 +90,6 @@ abstract class BaseGenerator(jfrFile: Path) {
         fun isExecutionSample(event: RecordedEvent) =
             event.eventType.name.equals("jdk.ExecutionSample") || event.eventType.name.equals("jdk.NativeMethodSample")
 
-        fun methodString(method: RecordedMethod) = method.type.name + "." + method.name + method.descriptor
-
         fun shortMethodString(method: RecordedMethod): String {
             val nameParts = method.type.name.split(".")
             return (
@@ -107,6 +103,7 @@ abstract class BaseGenerator(jfrFile: Path) {
                 it.subList(0, it.size - 1).joinToString(".")
             }
 
+        @Suppress("unused")
         val RecordedClass.className
             get() = name.split(".").last()
     }

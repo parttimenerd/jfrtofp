@@ -17,6 +17,41 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import me.bechberger.jfrtofp.types.BasicMarkerFormatType
+import me.bechberger.jfrtofp.types.Bytes
+import me.bechberger.jfrtofp.types.Category
+import me.bechberger.jfrtofp.types.Counter
+import me.bechberger.jfrtofp.types.CounterSamplesTable
+import me.bechberger.jfrtofp.types.FrameTable
+import me.bechberger.jfrtofp.types.FuncTable
+import me.bechberger.jfrtofp.types.IndexIntoCategoryList
+import me.bechberger.jfrtofp.types.IndexIntoFrameTable
+import me.bechberger.jfrtofp.types.IndexIntoFuncTable
+import me.bechberger.jfrtofp.types.IndexIntoResourceTable
+import me.bechberger.jfrtofp.types.IndexIntoStackTable
+import me.bechberger.jfrtofp.types.IndexIntoStringTable
+import me.bechberger.jfrtofp.types.IndexIntoSubcategoryListForCategory
+import me.bechberger.jfrtofp.types.JsAllocationsTable
+import me.bechberger.jfrtofp.types.MarkerDisplayLocation
+import me.bechberger.jfrtofp.types.MarkerFormatType
+import me.bechberger.jfrtofp.types.MarkerPhase
+import me.bechberger.jfrtofp.types.MarkerSchema
+import me.bechberger.jfrtofp.types.MarkerSchemaDataString
+import me.bechberger.jfrtofp.types.Milliseconds
+import me.bechberger.jfrtofp.types.NativeAllocationsTable
+import me.bechberger.jfrtofp.types.NativeSymbolTable
+import me.bechberger.jfrtofp.types.Profile
+import me.bechberger.jfrtofp.types.ProfileMeta
+import me.bechberger.jfrtofp.types.RawMarkerTable
+import me.bechberger.jfrtofp.types.ResourceTable
+import me.bechberger.jfrtofp.types.SampleGroup
+import me.bechberger.jfrtofp.types.SampleUnits
+import me.bechberger.jfrtofp.types.SamplesTable
+import me.bechberger.jfrtofp.types.StackTable
+import me.bechberger.jfrtofp.types.StringTable
+import me.bechberger.jfrtofp.types.Thread
+import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
+import me.bechberger.jfrtofp.types.resourceTypeEnum
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import picocli.CommandLine.Option
@@ -40,9 +75,9 @@ import kotlin.math.round
 import kotlin.math.roundToLong
 import kotlin.streams.toList
 
-fun Instant.toMicros(): Long = epochSecond * 1000000 + nano / 1000
+fun Instant.toMicros(): Long = epochSecond * 1_000_000 + nano / 1_000
 
-fun Instant.toMillis(): Milliseconds = toMicros() / 1000.0
+fun Instant.toMillis(): Milliseconds = toMicros() / 1_000.0
 
 fun List<RecordedEvent>.estimateIntervalInMicros() = take(100).map { it.startTime.toMicros() }.let {
     it.zip(it.drop(1)).minOfOrNull { (a, b) -> b - a }
@@ -117,8 +152,10 @@ class ConfigMixin {
     @Option(names = ["-n", "--non-project"], description = ["non project package prefixes"])
     var nonProjectPackagePrefixes: List<String> =
         listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.")
+
     @Option(names = ["--max-exec-samples"], description = ["Maximum number of exec samples per thread"])
     var maxExecutionSamplesPerThread: Int = -1
+
     @Option(names = ["--max-misc-samples"], description = ["Maximum number of misc samples per thread"])
     var maxMiscSamplesPerThread: Int = -1
 
@@ -459,7 +496,10 @@ class FirefoxProfileGenerator(
                         CounterSamplesTable(
                             time = cpuLoads.map { it.startTime.toMillis() },
                             number = List(cpuLoads.size) { 0 },
-                            count = cpuLoads.map { ((it.getFloat("jvmUser") + it.getFloat("jvmSystem")) * 1000000.0).roundToLong() }
+                            count = cpuLoads.map {
+                                ((it.getFloat("jvmUser") + it.getFloat("jvmSystem")) * 1_000_000.0)
+                                    .roundToLong()
+                            }
                         )
                     )
                 )
@@ -993,35 +1033,35 @@ class FirefoxProfileGenerator(
         }
     ) {
         // look first for contentType, then for field name and last for actual type
-        BOOLEAN(MarkerFormatType.STRING), BYTES(
-            MarkerFormatType.BYTES,
+        BOOLEAN(BasicMarkerFormatType.STRING), BYTES(
+            BasicMarkerFormatType.BYTES,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         UBYTE(
-            MarkerFormatType.INTEGER,
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         UNSIGNED(
-            MarkerFormatType.INTEGER,
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
-        INT(MarkerFormatType.INTEGER, { event, field, prof, _ -> event.getLong(field) }), UINT(
-            MarkerFormatType.INTEGER,
+        INT(BasicMarkerFormatType.INTEGER, { event, field, prof, _ -> event.getLong(field) }), UINT(
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         USHORT(
-            MarkerFormatType.INTEGER,
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         LONG(
-            MarkerFormatType.INTEGER,
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         FLOAT(
-            MarkerFormatType.DECIMAL,
+            BasicMarkerFormatType.DECIMAL,
             { event, field, prof, _ -> event.getDouble(field) }
         ),
-        TABLE(MarkerFormatType.STRING, { event, field, prof, tables ->
+        TABLE(BasicMarkerFormatType.STRING, { event, field, prof, tables ->
             try {
                 val obj = event.getValue<RecordedObject>(field)
                 obj.fields.filter { obj.getValue<Any>(it.name) != null }.map {
@@ -1034,23 +1074,24 @@ class FirefoxProfileGenerator(
                 throw e
             }
         }),
-        STRING(MarkerFormatType.STRING, { event, field, prof, _ -> event.getValue<Any?>(field).toString() }), ULONG(
-            MarkerFormatType.INTEGER,
+        STRING(BasicMarkerFormatType.STRING, { event, field, prof, _ -> event.getValue<Any?>(field).toString() }),
+        ULONG(
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
         DOUBLE(
-            MarkerFormatType.DECIMAL,
+            BasicMarkerFormatType.DECIMAL,
             { event, field, prof, _ -> event.getDouble(field) }
         ),
         MILLIS(
-            MarkerFormatType.MILLISECONDS,
+            BasicMarkerFormatType.MILLISECONDS,
             { event, field, prof, _ -> event.getLong(field) }
         ),
-        NANOS(MarkerFormatType.NANOSECONDS, { event, field, prof, _ -> event.getLong(field) }), PERCENTAGE(
-            MarkerFormatType.PERCENTAGE,
+        NANOS(BasicMarkerFormatType.NANOSECONDS, { event, field, prof, _ -> event.getLong(field) }), PERCENTAGE(
+            BasicMarkerFormatType.PERCENTAGE,
             { event, field, prof, _ -> event.getDouble(field) }
         ),
-        EVENT_THREAD(MarkerFormatType.STRING, { event, field, prof, _ ->
+        EVENT_THREAD(BasicMarkerFormatType.STRING, { event, field, prof, _ ->
             event.getThread(field).let {
                 "${it.javaName} (${it.id})"
             }
@@ -1069,7 +1110,7 @@ class FirefoxProfileGenerator(
             STRING
         ),
         GC_THRESHHOLD_UPDATER("updater", STRING), GC_WHEN("when", STRING), INFLATE_CAUSE("cause", STRING), MODIFIERS(
-            MarkerFormatType.STRING,
+            BasicMarkerFormatType.STRING,
             { event, field, prof, _ ->
                 val modInt = event.getInt(field)
                 val mods = mutableListOf<String>()
@@ -1113,11 +1154,11 @@ class FirefoxProfileGenerator(
             }
         ),
         EPOCH_MILLIS(
-            MarkerFormatType.MILLISECONDS,
+            BasicMarkerFormatType.MILLISECONDS,
             { event, field, prof, _ -> event.getLong(field) }
         ),
-        BYTES_PER_SECOND(MarkerFormatType.BYTES, { event, field, prof, _ -> event.getDouble(field) }), BITS_PER_SECOND(
-            MarkerFormatType.BYTES,
+        BYTES_PER_SECOND(BasicMarkerFormatType.BYTES, { event, field, prof, _ -> event.getDouble(field) }), BITS_PER_SECOND(
+            BasicMarkerFormatType.BYTES,
             { event, field, prof, _ -> event.getDouble(field) / 8 }
         ),
         METADATA_TYPE("type", STRING), METASPACE_OBJECT_TYPE("type", STRING), NARROW_OOP_MODE(
@@ -1132,7 +1173,7 @@ class FirefoxProfileGenerator(
             "state",
             STRING
         ),
-        STACKTRACE(MarkerFormatType.INTEGER, { event, field, prof, tables ->
+        STACKTRACE(BasicMarkerFormatType.INTEGER, { event, field, prof, tables ->
             val st = (event as RecordedEvent).stackTrace
             if (st.frames.isEmpty()) {
                 0
@@ -1141,10 +1182,10 @@ class FirefoxProfileGenerator(
             }
         }),
         SYMBOL("string", STRING), ThreadState("name", STRING), TICKS(
-            MarkerFormatType.INTEGER,
+            BasicMarkerFormatType.INTEGER,
             { event, field, prof, _ -> event.getLong(field) }
         ),
-        TICKSPAN(MarkerFormatType.INTEGER, { event, field, prof, _ -> event.getLong(field) }), VMOperationType(
+        TICKSPAN(BasicMarkerFormatType.INTEGER, { event, field, prof, _ -> event.getLong(field) }), VMOperationType(
             "type",
             STRING
         ),
@@ -1153,15 +1194,15 @@ class FirefoxProfileGenerator(
             STRING
         ),
         PATH(
-            MarkerFormatType.FILE_PATH,
+            BasicMarkerFormatType.FILE_PATH,
             { event, field, prof, _ -> event.getString(field) }
         ),
         CLASS(
-            MarkerFormatType.STRING,
+            BasicMarkerFormatType.STRING,
             { event, field, prof, _ -> classToString(event.getValue<RecordedObject>(field)) }
         ),
         METHOD(
-            MarkerFormatType.STRING,
+            BasicMarkerFormatType.STRING,
             { event, field, prof, _ -> methodToString(event.getValue<RecordedObject>(field)) }
         );
 
@@ -1227,13 +1268,15 @@ class FirefoxProfileGenerator(
         val list = mutableListOf<MarkerSchema>()
         val names = mutableMapOf<String, FieldMapping>()
         private val timelineOverviewEvents = setOf<String>()
-        private val timelineMemoryEvents = setOf<String>()
+        private val timelineMemoryEvents = setOf<String>("memory", "gc", "GarbageCollection")
         private val ignoredEvents =
             setOf("jdk.ObjectAllocationSample", "jdk.OldObjectSample", "jdk.ExecutionSample", "jdk.NativeMethodSample")
 
         private fun isIgnoredEvent(event: RecordedEvent) = ignoredEvents.contains(event.eventType.name)
 
         fun isIgnoredField(field: ValueDescriptor) = config.omitEventThreadProperty && field.name == "eventThread"
+
+        fun isMemoryEvent(event: RecordedEvent) = event.eventType.name.let { name -> name in timelineMemoryEvents }
 
         fun addForEvent(event: RecordedEvent): FieldMapping? {
             val name = event.eventType.name
@@ -1247,7 +1290,7 @@ class FirefoxProfileGenerator(
                 )
                 if (name in timelineOverviewEvents) {
                     display.add(MarkerDisplayLocation.TIMELINE_OVERVIEW)
-                } else if (name in timelineMemoryEvents || "memory" in name.lowercase() || "gc" in name.lowercase() || "GarbageCollection" in name) {
+                } else if (isMemoryEvent(event)) {
                     display.add(MarkerDisplayLocation.TIMELINE_MEMORY)
                 }
                 val mapping = mutableMapOf("stackTrace" to "cause")
@@ -1330,11 +1373,14 @@ class FirefoxProfileGenerator(
                 sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
                 isGCThread(thread)
             ) else null,
-            nativeAllocations = if (config.enableAllocations && config.useNativeAllocViewForAllocations && hasObjectSamples) generateNativeAllocationsTable(
-                tables,
-                sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
-                isGCThread(thread)
-            ) else null,
+            nativeAllocations = if (config.enableAllocations && config.useNativeAllocViewForAllocations && hasObjectSamples
+            ) {
+                generateNativeAllocationsTable(
+                    tables,
+                    sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
+                    isGCThread(thread)
+                )
+            } else null,
             markers = if (config.enableMarkers) generateMarkersTable(
                 markerSchema,
                 tables,
@@ -1404,7 +1450,7 @@ class FirefoxProfileGenerator(
     private fun profileMeta(markerSchema: MarkerSchemaWrapper): ProfileMeta {
         // TODO: include markers
         return ProfileMeta(
-            interval = intervalMicros / 1000.0,
+            interval = intervalMicros / 1_000.0,
             startTime = startTimeMillis,
             endTime = endTimeMillis,
             categories = CategoryE.toCategoryList(),

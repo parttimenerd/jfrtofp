@@ -6,7 +6,7 @@
  *
  * https://github.com/firefox-devtools/profiler/blob/main/src/types/profile.js
  */
-package me.bechberger.jfrtofp
+package me.bechberger.jfrtofp.types
 
 import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
@@ -14,14 +14,19 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonContentPolymorphicSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 typealias Milliseconds = Double
 typealias Microseconds = Double
+
+@Suppress("unused")
 typealias Seconds = Double
 
 typealias IndexIntoStackTable = Int
+
+@Suppress("unused")
 typealias IndexIntoSamplesTable = Int
+
+@Suppress("unused")
 typealias IndexIntoRawMarkerTable = Int
 typealias IndexIntoFrameTable = Int
 typealias IndexIntoStringTable = Int
@@ -37,7 +42,11 @@ typealias ThreadIndex = Int
 // The Tid is most often a Int. However in some cases such as merged profiles
 // we could generate a g.
 typealias Tid = Long
+
+@Suppress("unused")
 typealias IndexIntoJsTracerEvents = Int
+
+@Suppress("unused")
 typealias CounterIndex = Int
 typealias TabID = Int
 typealias InnerWindowID = Int
@@ -68,6 +77,14 @@ typealias Address = Long
  * See: https://github.com/facebook/flow/issues/4967#issuecomment-402355640
  */
 typealias ObjectMap<T> = Map<String, T>
+
+typealias StringTable = List<String>
+
+/**
+ * Present in the firefox profiler format, but we don't have any use and there omit the field with this type.
+ * This type aliases to String, but this has nothing todo with the real type.
+ */
+typealias Missing = String
 
 /**
  * The stack table stores the tree of stack nodes of a thread.
@@ -103,7 +120,7 @@ typealias ObjectMap<T> = Map<String, T>
  * For example, here's a case where a stack's category is not recoverable from
  * any other information in the transformed thread:
  * In the call path
- *   someJSFunction [JS] -> Node.insertBefore [DOM] -> nsAttrAndChildArray::InsertChildAt,
+ *      <code>someJSFunction [JS] -> Node.insertBefore [DOM] -> nsAttrAndChildArray::InsertChildAt</code>
  * the stack node for nsAttrAndChildArray::InsertChildAt should inherit the
  * category DOM from its "Node.insertBefore" prefix stack. And it should keep
  * the DOM category even if you apply the "Merge node into calling function"
@@ -164,6 +181,7 @@ enum class WeightType {
     SAMPLES,
 
     @SerialName("tracing-ms")
+    @Suppress("unused")
     TRACING,
 
     @SerialName("bytes")
@@ -180,10 +198,6 @@ interface SamplesLikeTable {
     val weight: List<Weight>?
     val weightType: WeightType
     val length: Int
-}
-
-fun SamplesLikeTable?.isNullOrEmpty(): Boolean {
-    return this == null || this.length == 0
 }
 
 /**
@@ -277,19 +291,6 @@ object SamplesLikeTableSerializer : JsonContentPolymorphicSerializer<SamplesLike
         else -> SamplesTable.serializer()
     }
 }
-
-/**
- * This is the base abstract class that marker payloads inherit from. This probably isn't
- * used directly in profiler.firefox.com, but is provided here for mainly documentation
- * purposes.
- */
-@Serializable
-data class ProfilerMarkerPayload(
-    val type: String,
-    val startTime: Milliseconds? = null,
-    val endTime: Milliseconds? = null,
-    val stack: Thread? = null
-)
 
 /**
  * Markers represent arbitrary events that happen within the browser. They have a
@@ -570,9 +571,11 @@ typealias PageList = List<Page>
 @Serializable
 enum class PauseReason {
     @SerialName("profiler-paused")
+    @Suppress("unused")
     PROFILER_PAUSED,
 
     @SerialName("collecting")
+    @Suppress("unused")
     COLLECTING
 }
 
@@ -630,36 +633,6 @@ data class Counter(
 )
 
 /**
- * The statistics about profiler overhead. It includes max/min/mean values of
- * individual and overall overhead timings.
- */
-@Serializable
-data class ProfilerOverheadStats(
-    val maxCleaning: Microseconds,
-    val maxCounter: Microseconds,
-    val maxInterval: Microseconds,
-    val maxLockings: Microseconds,
-    val maxOverhead: Microseconds,
-    val maxThread: Microseconds,
-    val meanCleaning: Microseconds,
-    val meanCounter: Microseconds,
-    val meanInterval: Microseconds,
-    val meanLockings: Microseconds,
-    val meanOverhead: Microseconds,
-    val meanThread: Microseconds,
-    val minCleaning: Microseconds,
-    val minCounter: Microseconds,
-    val minInterval: Microseconds,
-    val minLockings: Microseconds,
-    val minOverhead: Microseconds,
-    val minThread: Microseconds,
-    val overheadDurations: Microseconds,
-    val overheadPercentage: Microseconds,
-    val profiledDuration: Microseconds,
-    val samplingCount: Microseconds
-)
-
-/**
  * This object represents the configuration of the profiler when the profile was recorded.
  */
 @Serializable
@@ -705,12 +678,24 @@ data class ProfilerOverheadSamplesTable(
 data class ProfilerOverhead(
     val samples: ProfilerOverheadSamplesTable,
     // There is no statistics object if there is no sample.
-    val statistics: ProfilerOverheadStats? = null,
+    val statistics: Missing? = null,
     val pid: Pid,
     val mainThreadIndex: ThreadIndex
 )
 
-typealias StringTable = List<String>
+/**
+ * configure markers for which a SamplesLikeTable can be generated
+ * (using the cause property for the stacktrace)
+ */
+@Experimental
+@Serializable
+data class SampleLikeMarkerConfig(
+    val name: String,
+    val weightType: WeightType,
+    val weightField: String,
+    /** name of the property like 'allocatedClass' */
+    val additionalPropField: String? = null
+)
 
 /**
  * Gecko has one or more processes. There can be multiple threads per processes. Each
@@ -742,6 +727,7 @@ data class Thread(
     val registerTime: Milliseconds,
     val unregisterTime: Milliseconds?,
     val pausedRanges: List<PausedRange>,
+    /** name it GeckMain and it gets to be the process */
     val name: String,
     /*
     The eTLD+1 of the isolated content process if provided by the back-end.
@@ -751,6 +737,7 @@ data class Thread(
     - It's a sanitized profile.
     - It's a profile from an older Firefox which doesn't include this field (introduced in Firefox 80).
     */
+    @Suppress("ConstructorParameterNaming")
     val `eTLD+1`: String? = null,
     val processName: String? = null,
     val isJsTracer: Boolean? = null,
@@ -789,11 +776,13 @@ data class Thread(
     It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
     had no extra attribute at all.
     */
-    val userContextId: Int? = null
+    val userContextId: Int? = null,
+    @Experimental
+    val sampleLikeMarkersConfig: List<SampleLikeMarkerConfig>? = null
 ) {
     init {
-        assert(jsAllocations.isNullOrEmpty())
-        assert(nativeAllocations.isNullOrEmpty())
+        //  assert(jsAllocations.isNullOrEmpty())
+        // assert(nativeAllocations.isNullOrEmpty())
 //        assert(samples.isNullOrEmpty())
     }
 }
@@ -807,66 +796,19 @@ data class ExtensionTable(
     val length: Int = name.size
 )
 
-/**
- * Visual progress describes the visual progression during page load. A sample is generated
- * everytime the visual completeness of the webpage changes.
- */
-@Serializable
-data class ProgressGraphData(
-    // A percentage that describes the visual completeness of the webpage, ranging from 0% - 100%
-    val percent: Double,
-    // The time in milliseconds which the sample was taken.
-    val timestamp: Milliseconds
-)
-
-/**
- * Visual metrics are performance metrics that measure above-the-fold webpage visual performance,
- * and more accurately describe how human end-users perceive the speed of webpage loading. These
- * metrics serves as additional metrics to the typical page-level metrics such as onLoad. Visual
- * metrics contains key metrics such as Speed Index, Perceptual Speed Index, and ContentfulSpeedIndex,
- * along with their visual progression. These properties find their way into the gecko profile through running
- * browsertime, which is a tool that lets you collect performance metrics of your website.
- * Browsertime provides the option of generating a gecko profile, which then embeds these visual metrics
- * into the geckoprofile. More information about browsertime can be found through https://github.com/sitespeedio/browsertime.
- * These values are generated only when browsertime is run with --visualMetrics.
- *
- * Most values from this object are generated by the python script https://github.com/sitespeedio/browsertime/blob/6e88284930c1d3ded8d9d95252d2e13c252d361c/browsertime/visualmetrics.py
- * Especially look at the function calculate_visual_metrics.
- * Then the script is called and the result processed from the JS files in https://github.com/sitespeedio/browsertime/tree/6e88284930c1d3ded8d9d95252d2e13c252d361c/lib/video/postprocessing/visualmetrics
- * and https://github.com/sitespeedio/browsertime/blob/6e88284930c1d3ded8d9d95252d2e13c252d361c/lib/core/engine/iteration.js#L261-L264.
- * Finally they're inserted into the JSON profile in https://github.com/sitespeedio/browsertime/blob/6e88284930c1d3ded8d9d95252d2e13c252d361c/lib/firefox/webdriver/firefox.js#L215-L230
- */
-@Serializable
-data class VisualMetrics(
-    val FirstVisualChange: Int,
-    val LastVisualChange: Int,
-    val SpeedIndex: Int,
-    val VisualProgress: List<ProgressGraphData>,
-    // Contentful and Perceptual values may be missing. They're generated only if
-    // the user specifies the options --visualMetricsContentful and
-    // --visualMetricsPerceptual in addition to --visualMetrics.
-    val ContentfulSpeedIndex: Int? = null,
-    val ContentfulSpeedIndexProgress: List<ProgressGraphData>? = null,
-    val PerceptualSpeedIndex: Int? = null,
-    val PerceptualSpeedIndexProgress: List<ProgressGraphData>? = null,
-    // VisualReadiness and VisualCompleteXX values are generated in
-    // https://github.com/sitespeedio/browsertime/blob/main/lib/video/postprocessing/visualmetrics/extraMetrics.js
-    val VisualReadiness: Int,
-    val VisualComplete85: Int,
-    val VisualComplete95: Int,
-    val VisualComplete99: Int
-)
-
 // Units of ThreadCPUDelta values for different platforms.
 @Serializable
 enum class ThreadCPUDeltaUnit {
     @SerialName("ns")
+    @Suppress("unused")
     NS,
 
     @SerialName("µs")
+    @Suppress("unused")
     US,
 
     @SerialName("variable CPU cycles")
+    @Suppress("unused")
     VARIABLE_CPU_CYCLES
 }
 
@@ -999,7 +941,7 @@ data class ProfileMeta(
     // Perceptual Speed Index, and ContentfulSpeedIndex. This is optional because only
     // profiles generated by browsertime will have this property. Source code for
     // browsertime can be found at https://github.com/sitespeedio/browsertime.
-    val visualMetrics: VisualMetrics? = null,
+    val visualMetrics: Missing? = null,
     // The configuration of the profiler at the time of recording. Optional since older
     // versions of Firefox did not include it.
     val configuration: ProfilerConfiguration? = null,
@@ -1027,7 +969,24 @@ data class ProfileMeta(
     @Required
     val doesNotUseFrameImplementation: Boolean? = true,
     @Required
-    val sourceCodeIsNotOnSearchfox: Boolean? = true
+    val sourceCodeIsNotOnSearchfox: Boolean? = true,
+    // Extra information about the profile, not shown in the "Profile Info" panel,
+    // but in the more info panel
+    val extra: List<ExtraProfileInfoSection>? = null
+)
+
+@Serializable
+data class ExtraProfileInfoEntry(
+    val label: String,
+    val format: MarkerFormatType,
+    // any value valid for the formatter
+    val value: MarkerFormatType
+)
+
+@Serializable
+data class ExtraProfileInfoSection(
+    val label: String,
+    val entries: List<ExtraProfileInfoEntry>
 )
 
 /**
@@ -1069,529 +1028,3 @@ in the profile, and the front-end could then display it in the proper manner.
 */
 typealias ProcessProfilingLog = Map<String, String>
 typealias ProfilingLog = Map<Pid, ProcessProfilingLog>
-
-// ------- marker.js ---------
-
-// Provide different formatting options for Strings.
-@Serializable
-enum class MarkerFormatType {
-    // ----------------------------------------------------
-    // String types.
-
-    // Show the URL, and handle PII sanitization
-    // TODO Handle PII sanitization. Issue #2757
-    @SerialName("url")
-    URL,
-
-    // TODO Handle PII sanitization. Issue #2757
-    // Show the file path, and handle PII sanitization.
-    @SerialName("file-path")
-    FILE_PATH,
-
-    // Important, do not put URL or file path information here, as it will not be
-    // sanitized. Please be careful with including other types of PII here as well.
-    // e.g. "Label: Some String"
-    @SerialName("string")
-    STRING,
-
-    // ----------------------------------------------------
-    // Numeric types
-
-    // Note: All time and durations are stored as milliseconds.
-
-    // For time data that represents a duration of time.
-    // e.g. "Label: 5s, 5ms, 5μs"
-    @SerialName("duration")
-    DURATION,
-
-    // Data that happened at a specific time, relative to the start of
-    // the profile. e.g. "Label: 15.5s, 20.5ms, 30.5μs"
-    @SerialName("time")
-    TIME,
-
-    // The following are alternatives to display a time only in a specific
-    // unit of time.
-    @SerialName("seconds") // "Label: 5s"
-    SECONDS,
-
-    @SerialName("milliseconds") // "Label: 5ms"
-    MILLISECONDS,
-
-    @SerialName("microseconds") // "Label: 5μs"
-    MICROSECONDS,
-
-    @SerialName("nanoseconds") // "Label: 5ns"
-    NANOSECONDS,
-
-    // e.g. "Label: 5.55mb, 5 bytes, 312.5kb"
-    @SerialName("bytes")
-    BYTES,
-
-    // This should be a value between 0 and 1.
-    // "Label: 50%"
-    @SerialName("percentage")
-    PERCENTAGE,
-
-    // The integer should be used for generic representations of Ints. Do not
-    // use it for time information.
-    // "Label: 52, 5,323, 1,234,567"
-    @SerialName("integer")
-    INTEGER,
-
-    // The decimal should be used for generic representations of Ints. Do not
-    // use it for time information.
-    // "Label: 52.23, 0.0054, 123,456.78"
-    @SerialName("decimal")
-    DECIMAL
-}
-
-// A list of all the valid locations to surface this marker.
-// We can be free to add more UI areas.
-@Serializable
-enum class MarkerDisplayLocation {
-    @SerialName("marker-chart")
-    MARKER_CHART,
-
-    @SerialName("marker-table")
-    MARKER_TABLE,
-
-    // This adds markers to the main marker timeline in the header.
-    @SerialName("timeline-overview")
-    TIMELINE_OVERVIEW,
-
-    // In the timeline, this is a section that breaks out markers that are related
-// to memory. When memory counters are enabled, this is its own track, otherwise
-// it is displayed with the main thread.
-    @SerialName("timeline-memory")
-    TIMELINE_MEMORY,
-
-    // This adds markers to the IPC timeline area in the header.
-    @SerialName("timeline-ipc")
-    TIMELINE_IPC,
-
-    // This adds markers to the FileIO timeline area in the header.
-    @SerialName("timeline-fileio")
-    TIMELINE_FILEIO,
-
-    // TODO - This is not supported yet.
-    @SerialName("stack-chart")
-    STACK_CHART
-}
-
-@Serializable
-data class MarkerTrackLineConfig(
-    val key: String,
-    val fillColor: String? = null,
-    val strokeColor: String? = null,
-    val width: Int? = null,
-    // "line" or "bar"
-    val type: String
-)
-
-@Serializable
-data class MarkerTrackConfig(
-    val label: String,
-    /* small, medium, large */
-    val height: String? = null,
-    val lines: List<MarkerTrackLineConfig>,
-    val isPreSelected: Boolean = false
-)
-
-@Serializable
-data class MarkerSchema(
-    // The unique identifier for this marker.
-    val name: String, // e.g. "CC"
-
-    // The label of how this marker should be displayed in the UI.
-    // If none is provided, then the name is used.
-    val tooltipLabel: String? = null, // e.g. "Cycle Collect"
-
-    // This is how the marker shows up in the Marker Table description.
-    // If none is provided, then the name is used.
-    val tableLabel: String? = null, // e.g. "{marker.data.eventType} – DOMEvent"
-
-    // This is how the marker shows up in the Marker Chart, where it is drawn
-    // on the screen as a bar.
-    // If none is provided, then the name is used.
-    val chartLabel: String? = null,
-
-    // The locations to display
-    val display: List<MarkerDisplayLocation>,
-
-    val data: List<MarkerSchemaData>,
-
-    val trackConfig: MarkerTrackConfig? = null
-)
-
-@Serializable(with = MarkerSchemaDataSerializer::class)
-sealed class MarkerSchemaData
-
-@Serializable
-data class MarkerSchemaDataString(
-    val key: String,
-    val label: String? = null,
-    val format: MarkerFormatType,
-    val searchable: Boolean? = null
-) : MarkerSchemaData()
-
-// This type is a static bit of text that will be displayed
-@Serializable
-data class MarkerSchemaDataStatic(
-    val label: String,
-    val value: String
-) : MarkerSchemaData()
-
-object MarkerSchemaDataSerializer : JsonContentPolymorphicSerializer<MarkerSchemaData>(MarkerSchemaData::class) {
-    override fun selectDeserializer(element: JsonElement) = when {
-        "format" in element.jsonObject -> MarkerSchemaDataString.serializer()
-        else -> MarkerSchemaDataStatic.serializer()
-    }
-}
-
-@Serializable
-@SerialName("Text")
-data class TextMarkerPayload(
-    val name: String,
-    val cause: CauseBacktrace? = null
-) : MarkerPayload
-
-typealias MarkerSchemaByName = ObjectMap<MarkerSchema>
-
-/**
- * Markers can include a stack. These are converted to a cause backtrace, which includes
- * the time the stack was taken. Sometimes this cause can be async, and triggered before
- * the marker, or it can be synchronous, and the time is contained within the marker's
- * start and end time.
- */
-@Serializable
-data class CauseBacktrace(
-    // `tid` is optional because older processed profiles may not have it.
-    // No upgrader was written for this change.
-    val tid: Tid? = null,
-    val time: Milliseconds,
-    val stack: IndexIntoStackTable
-)
-
-/**
- * This type holds data that should be synchronized across the various phases
- * associated with an IPC message.
- */
-@Serializable
-data class IPCSharedData(
-    // Each of these fields comes from a specific marker corresponding to each
-    // phase of an IPC message; since we can't guarantee that any particular
-    // marker was recorded, all of the fields are optional.
-    val startTime: Milliseconds? = null,
-    val sendStartTime: Milliseconds? = null,
-    val sendEndTime: Milliseconds? = null,
-    val recvEndTime: Milliseconds? = null,
-    val endTime: Milliseconds? = null,
-    val sendTid: Tid? = null,
-    val recvTid: Tid? = null,
-    val sendThreadName: String? = null,
-    val recvThreadName: String? = null
-)
-
-/**
- * Measurement for how long draw calls take for the compositor.
- */
-@Serializable
-data class GPUMarkerPayload(
-    @Required
-    val type: String = "gpu_time_query",
-    val cpustart: Milliseconds,
-    val cpuend: Milliseconds,
-    val gpustart: Milliseconds, // always 0.
-    val gpuend: Milliseconds // The time the GPU took to execute the command.
-)
-
-/**
- * These markers don't have a start and end time. They work in pairs, one
- * specifying the start, the other specifying the end of a specific tracing
- * marker.
- */
-
-@Serializable
-data class PaintProfilerMarkerTracing(
-    @Required
-    val type: String = "tracing",
-    @Required
-    val category: String = "Paint",
-    val cause: CauseBacktrace? = null
-)
-
-@Serializable
-data class ArbitraryEventTracing(
-    @Required
-    val type: String = "tracing",
-    @Required
-    val category: String
-)
-
-@Serializable
-data class CcMarkerTracing(
-    @Required
-    val type: String = "tracing",
-    @Required
-    val category: String = "CC",
-    val cause: CauseBacktrace? = null
-)
-
-@Serializable
-data class GCSliceData(
-    // Slice number within the GCMajor collection.
-    val slice: Int,
-
-    val pause: Milliseconds,
-
-    // The reason for this slice.
-    val reason: String,
-
-    // The GC state at the start and end of this slice.
-    val initial_state: String,
-    val final_state: String,
-
-    // The incremental GC budget for this slice (see pause above).
-    val budget: String,
-
-    // The number of the GCMajor that this slice belongs to.
-    val major_gc_number: Int,
-
-    // These are present if the collection was triggered by exceeding some
-    // threshold.  The reason field says how they should be interpreted.
-    val trigger_amount: Int? = null,
-    val trigger_threshold: Int? = null,
-
-    // The number of page faults that occured during the slice.  If missing
-    // there were 0 page faults.
-    val page_faults: Int? = null,
-
-    val start_timestamp: Seconds,
-    /* either times or phase times has to be present */
-    val times: Map<String, Milliseconds>? = null,
-    // only present in non-gecko
-    val phase_times: Map<String, Microseconds>? = null
-)
-
-@Serializable(with = GCMajorStatusSerializer::class)
-interface GCMajorStatus {
-    val status: String
-}
-
-@Serializable
-data class GCMajorAborted(
-    override val status: String = "aborted"
-) : GCMajorStatus
-
-@Serializable
-data class GCMajorCompleted(
-    override val status: String = "completed",
-    val max_pause: Milliseconds,
-
-    // The sum of all the slice durations
-    val total_time: Milliseconds,
-
-    // The reason from the first slice. see JS::gcreason::Reason
-    val reason: String,
-
-    // Counts
-    val zones_collected: Int,
-    val total_zones: Int,
-    val total_compartments: Int,
-    val minor_gcs: Int,
-    // Present when non-zero.
-    val store_buffer_overflows: Int? = null,
-    val slices: Int,
-
-    // Timing for the SCC sweep phase.
-    val scc_sweep_total: Milliseconds,
-    val scc_sweep_max_pause: Milliseconds,
-
-    // The reason why this GC ran non-incrementally. Older profiles could have the string
-    // 'None' as a reason.
-    val nonincremental_reason: String? = null,
-
-    // The allocated space for the whole heap before the GC started.
-    val allocated_bytes: Int,
-    val post_heap_size: Int? = null,
-
-    // Only present if non-zero.
-    val added_chunks: Int? = null,
-    val removed_chunks: Int? = null,
-
-    // The number for the start of this GC event.
-    val major_gc_number: Int,
-    val minor_gc_number: Int,
-
-    // Slice number isn't in older profiles.
-    val slice_number: Int? = null,
-
-    // This usually isn't present with the gecko profiler, but it's the same
-    // as all of the slice markers themselves.
-    val slices_list: List<GCSliceData>? = null,
-
-    // MMU (Minimum mutator utilisation) A measure of GC's affect on
-    // responsiveness  See Statistics::computeMMU(), these percentages in the
-    // rage of 0-100.
-    // Percentage of time the mutator ran in a 20ms window.
-    val mmu_20ms: Double,
-    // Percentage of time the mutator ran in a 50ms window.
-    val mmu_50ms: Double,
-
-    // The duration of each phase
-    // only present in non-gecko
-    val phase_times: Map<String, Microseconds>? = null,
-    // only present in gecko
-    val totals: Map<String, Milliseconds>
-) : GCMajorStatus
-
-interface MarkerPayload
-
-@Serializable
-@SerialName("GCMajor")
-data class GCMajorMarkerPayload(
-    val timings: GCMajorStatus
-) : MarkerPayload
-
-// skipping GCMajorMarkerPayload_Gecko
-// and lots of other stuff, that we probably won't need.
-
-object GCMajorStatusSerializer : JsonContentPolymorphicSerializer<GCMajorStatus>(GCMajorStatus::class) {
-    override fun selectDeserializer(element: JsonElement) =
-        when (element.jsonObject["status"]!!.jsonPrimitive.content) {
-            "aborted" -> GCMajorAborted.serializer()
-            "completed" -> GCMajorAborted.serializer()
-            else -> throw IllegalArgumentException()
-        }
-}
-
-@Serializable
-@SerialName("JS allocation")
-data class JsAllocationPayload(
-    val className: String,
-    val typeName: String, // Currently only 'JSObject'
-    val coarseType: String, // Currently only 'Object',
-    val size: Bytes,
-    val inNursery: Boolean,
-    val stack: GeckoMarkerStack
-) : MarkerPayload
-
-@Serializable
-@SerialName("Native allocation")
-data class NativeAllocationPayload(
-    val size: Bytes,
-    val stack: GeckoMarkerStack,
-    val memoryAddress: Long? = null,
-    val threadId: Long? = null
-) : MarkerPayload
-
-// gecko-profile.js
-
-// These integral values are exported in the JSON of the profile, and are in the
-// RawMarkerTable. They represent a C++ class in Gecko that defines the type of
-// marker it is. These markers are then combined together to form the Marker[] type.
-// See deriveMarkersFromRawMarkerTable for more information. Also see the constants.js
-// file for JS values that can be used to refer to the different phases.
-//
-// From the C++:
-//
-// enum class MarkerPhase : int {
-//   Instant = 0,
-//   Interval = 1,
-//   IntervalStart = 2,
-//   IntervalEnd = 3,
-// };
-typealias MarkerPhase = Int
-
-@Serializable
-data class GeckoMarkerTuple(
-    val name: IndexIntoStringTable,
-    val startTime: Milliseconds?,
-    val endTime: Milliseconds?,
-    val phase: MarkerPhase,
-    val category: Int,
-    val data: MarkerPayload
-)
-
-@Serializable
-data class GeckoMarkers(
-    @Required
-    val schema: Map<String, Int> = mapOf(
-        "name" to 0,
-        "startTime" to 1,
-        "endTime" to 2,
-        "phase" to 3,
-        "category" to 4,
-        "data" to 5
-    ),
-    val data: List<GeckoMarkerTuple>
-)
-
-/**
- * These structs aren't very DRY, but it is a simple and complete approach.
- * These structs are the initial transformation of the Gecko data to the
- * processed format. See `docs-developer/gecko-profile-format.md` for more
- * information.
- */
-@Serializable
-data class GeckoMarkerStruct(
-    val name: IndexIntoStringTable,
-    val startTime: Milliseconds,
-    val endTime: Milliseconds,
-    val phase: MarkerPhase,
-    val data: MarkerPayload,
-    val category: IndexIntoCategoryList,
-    val length: Int
-)
-
-@Serializable
-data class GeckoMarkerStack(
-    @Required
-    val name: String = "SyncProfile",
-    val registerTime: Seconds?,
-    val unregisterTime: Seconds?,
-    val processType: String,
-    val tid: Int,
-    val pid: Int,
-    val markers: GeckoMarkers,
-    val samples: GeckoSamples
-)
-
-@Serializable(with = GeckoSamplesSerializer::class)
-interface GeckoSamples
-
-@Serializable
-data class GeckoSamplesBasic(
-    @Required
-    val schema: Map<String, Int> = mapOf("stack" to 0, "time" to 1, "responsiveness" to 2),
-    val data: List<GeckoSamplesBasicData>
-) : GeckoSamples
-
-@Serializable
-data class GeckoSamplesBasicData(
-    val stack: IndexIntoStackTable?,
-    val time: Milliseconds,
-    val responsiveness: Milliseconds
-)
-
-@Serializable
-data class GeckoSamplesDetailed(
-    @Required
-    val schema: Map<String, Int> = mapOf("stack" to 0, "time" to 1, "eventDelay" to 2, "responsiveness" to 3),
-    val data: List<GeckoSamplesDetailedData>
-) : GeckoSamples
-
-@Serializable
-data class GeckoSamplesDetailedData(
-    val stack: IndexIntoStackTable?,
-    val time: Milliseconds,
-    val eventDelay: Milliseconds,
-    val responsiveness: Milliseconds? = null
-)
-
-class GeckoSamplesSerializer : JsonContentPolymorphicSerializer<GeckoSamples>(GeckoSamples::class) {
-    override fun selectDeserializer(element: JsonElement) = when {
-        "responsiveness" in element.jsonObject["schema"]!!.jsonObject -> GeckoSamplesBasic.serializer()
-        else -> GeckoSamplesDetailed.serializer()
-    }
-}
