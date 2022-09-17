@@ -96,7 +96,7 @@ data class TableColumnFormat(
 
 @Experimental
 @Serializable
-data class TableMarkerFormat(val columns: List<TableMarkerFormat>, val type: String = "table") : MarkerFormatType
+data class TableMarkerFormat(val columns: List<TableColumnFormat>, val type: String = "table") : MarkerFormatType
 
 object MarkerFormatTypeSerializer : JsonContentPolymorphicSerializer<MarkerFormatType>(MarkerFormatType::class) {
     override fun selectDeserializer(element: JsonElement) = when (element) {

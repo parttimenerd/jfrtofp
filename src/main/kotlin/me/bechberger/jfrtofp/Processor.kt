@@ -22,6 +22,8 @@ import me.bechberger.jfrtofp.types.Bytes
 import me.bechberger.jfrtofp.types.Category
 import me.bechberger.jfrtofp.types.Counter
 import me.bechberger.jfrtofp.types.CounterSamplesTable
+import me.bechberger.jfrtofp.types.ExtraProfileInfoEntry
+import me.bechberger.jfrtofp.types.ExtraProfileInfoSection
 import me.bechberger.jfrtofp.types.FrameTable
 import me.bechberger.jfrtofp.types.FuncTable
 import me.bechberger.jfrtofp.types.IndexIntoCategoryList
@@ -49,8 +51,11 @@ import me.bechberger.jfrtofp.types.SampleUnits
 import me.bechberger.jfrtofp.types.SamplesTable
 import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.StringTable
+import me.bechberger.jfrtofp.types.TableColumnFormat
+import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.types.Thread
 import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
+import me.bechberger.jfrtofp.types.ThreadIndex
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
@@ -178,7 +183,6 @@ class ConfigMixin {
 
 data class Config(
     val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_HEAP),
-    val systemThreadType: String = "vr",
     /** time range of a given sample is at max 2.0 * interval */
     val maxIntervalFactor: Double = 2.0,
     val useNonProjectCategory: Boolean = true,
@@ -198,7 +202,10 @@ data class Config(
     val maxThreads: Int = 100,
     val omitEventThreadProperty: Boolean = true,
     val maxExecutionSamplesPerThread: Int = -1,
-    val maxMiscSamplesPerThread: Int = -1
+    val maxMiscSamplesPerThread: Int = -1,
+    val initialVisibleThreads: Int = 10,
+    val selectProcessTrackInitially: Boolean = true,
+    val initialSelectedThreads: Int = 10
 ) {
 
     fun isRelevantForJava(func: RecordedMethod): Boolean {
@@ -333,9 +340,6 @@ class FirefoxProfileGenerator(
 
     private val eventsPerType: Map<String, List<RecordedEvent>>
 
-    private fun List<RecordedEvent>.groupByType() =
-        groupBy { if (it.eventType.name == "jdk.NativeMethodSample") "jdk.ExecutionSample" else it.eventType.name }
-
     init {
         eventsPerType = events.groupByType()
     }
@@ -401,9 +405,11 @@ class FirefoxProfileGenerator(
     val oscpu
         get() = eventsPerType["jdk.OSInformation"]?.getOrNull(0)?.getString("osVersion")?.let { it ->
             it.split("uname:")[1].split("\n").getOrNull(0)?.let { distId ->
-                eventsPerType["jdk.CPUInformation"]?.getOrNull(0)?.getString("cpu")?.split(" ")?.getOrNull(0)?.let {
-                    "$it $distId"
-                } ?: distId
+                eventsPerType["jdk.CPUInformation"]?.getOrNull(0)
+                    ?.getString("cpu")?.split(" ")
+                    ?.getOrNull(0)?.let {
+                        "$it $distId"
+                    } ?: distId
             } ?: it
         }
 
@@ -1157,7 +1163,8 @@ class FirefoxProfileGenerator(
             BasicMarkerFormatType.MILLISECONDS,
             { event, field, prof, _ -> event.getLong(field) }
         ),
-        BYTES_PER_SECOND(BasicMarkerFormatType.BYTES, { event, field, prof, _ -> event.getDouble(field) }), BITS_PER_SECOND(
+        BYTES_PER_SECOND(BasicMarkerFormatType.BYTES, { event, field, prof, _ -> event.getDouble(field) }),
+        BITS_PER_SECOND(
             BasicMarkerFormatType.BYTES,
             { event, field, prof, _ -> event.getDouble(field) / 8 }
         ),
@@ -1334,7 +1341,7 @@ class FirefoxProfileGenerator(
 
     private fun generateThread(
         markerSchema: MarkerSchemaWrapper,
-        thread: RecordedThread,
+        thread: RecordedThread?,
         eventsForThread: List<RecordedEvent>,
         // events for the process (without a thread id)
         eventsForProcess: List<RecordedEvent>
@@ -1344,8 +1351,10 @@ class FirefoxProfileGenerator(
                 config.maxMiscSamplesPerThread
             ) else it.value
         }
-        val start = eventsForThread.first().startTime.toMillis() - intervalMicros / 1000.0
-        val end = eventsForThread.last().endTime.toMillis()
+        val isSystemThread = thread == null
+        val start = if (isSystemThread) this.startTimeMillis else
+            eventsForThread.first().startTime.toMillis() - intervalMicros / 1000.0
+        val end = if (isSystemThread) this.endTimeMillis else eventsForThread.last().endTime.toMillis()
         val executionSamples = eventsWithTimeRanges(sortedEventsPerType["jdk.ExecutionSample"] ?: emptyList()).let {
             if (config.maxExecutionSamplesPerThread > -1) {
                 it.take(config.maxExecutionSamplesPerThread)
@@ -1355,25 +1364,29 @@ class FirefoxProfileGenerator(
         }
         val tables = Tables(config)
         val samplesTable = generateSamplesTable(tables, executionSamples)
-        val isMainThread = thread.javaThreadId == this.mainThreadId
         val hasObjectSamples = sortedEventsPerType["jdk.ObjectAllocationSample"]?.isNotEmpty() ?: false
         return Thread(
-            processType = if (isSystemThread(thread)) config.systemThreadType else "default",
-            processStartupTime = if (isMainThread) 0.0 else start,
+            processType = if (isSystemThread) "tab" else "default",
+            processStartupTime = if (isSystemThread) 0.0 else start,
             processShutdownTime = end,
             registerTime = sortedEventsPerType["jdk.ThreadStart"]?.getOrNull(0)?.startTime?.toMillis() ?: start,
             unregisterTime = sortedEventsPerType["jdk.ThreadEnd"]?.getOrNull(0)?.startTime?.toMillis() ?: end,
             pausedRanges = listOf(),
-            name = thread.javaName ?: thread.osName,
+            // the global process track has to have type "tab" and name "GeckoMain"
+            name = if (isSystemThread) "GeckoMain" else thread!!.javaName ?: thread.osName,
+            processName = "Parent Process",
             pid = pid,
-            tid = thread.javaThreadId,
+            tid = if (isSystemThread) pid else thread!!.javaThreadId,
             samples = samplesTable,
-            jsAllocations = if (config.enableAllocations && hasObjectSamples) generateJsAllocationsTable(
+            jsAllocations = if (thread != null && config.enableAllocations &&
+                hasObjectSamples
+            ) generateJsAllocationsTable(
                 tables,
                 sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
                 isGCThread(thread)
             ) else null,
-            nativeAllocations = if (config.enableAllocations && config.useNativeAllocViewForAllocations && hasObjectSamples
+            nativeAllocations = if (thread != null && config.enableAllocations &&
+                config.useNativeAllocViewForAllocations && hasObjectSamples
             ) {
                 generateNativeAllocationsTable(
                     tables,
@@ -1405,21 +1418,26 @@ class FirefoxProfileGenerator(
             "JFR Shutdown Hook",
             "Permissionless thread",
             "Thread Monitor CTRL-C"
-        ) || thread.threadGroup?.name == "system" || thread.osName.startsWith("GC Thread")
+        ) || thread.threadGroup?.name == "system" || thread.osName.startsWith("GC Thread") ||
+            thread.javaName.startsWith("JFR ") ||
+            thread.javaName == "Monitor Ctrl-Break" || "CompilerThread" in thread.javaName ||
+            thread.javaName.startsWith("GC Thread") || thread.javaName == "Notification Thread" ||
+            thread.javaName == "Finalizer" || thread.javaName == "Attach Listener"
     }
 
-    private fun generateThreads(markerSchema: MarkerSchemaWrapper): List<Thread> {
+    private fun generateThreads(markerSchema: MarkerSchemaWrapper): Pair<List<Thread>, Set<Thread>> {
         val inThreadEvents = mutableListOf<RecordedEvent>()
         val outThreadEvents = mutableListOf<RecordedEvent>()
         for (event in this.events) {
             (if (event.sampledThreadOrNull == null) outThreadEvents else inThreadEvents).add(event)
         }
-        return inThreadEvents.groupBy { it.sampledThread.javaThreadId }
+        val systemThreads = mutableSetOf<Thread>()
+        val normalThreads = inThreadEvents.groupBy { it.sampledThread.javaThreadId }
             .filter { it.value.any { e -> e.isExecutionSample } }.toList().sortedBy {
                 if (it.first == mainThreadId) {
                     0
                 } else {
-                    it.first
+                    -it.first
                 }
             }.let {
                 if (config.maxThreads > 0) {
@@ -1428,22 +1446,41 @@ class FirefoxProfileGenerator(
                     it
                 }
             }.map { (id, eventss) ->
-                generateThread(
+                val t = generateThread(
                     markerSchema,
                     eventss.first().sampledThread,
                     eventss,
-                    (if (id == mainThreadId) outThreadEvents else listOf())
+                    listOf()
                 )
+                if (isSystemThread(eventss.first().sampledThread)) {
+                    systemThreads.add(t)
+                }
+                t
             }
+        val processThread = generateThread(markerSchema, null, listOf(), outThreadEvents)
+        return Pair(listOf(processThread) + normalThreads, systemThreads)
     }
 
     fun generate(): Profile {
         val markerSchema = MarkerSchemaWrapper(config)
+        val (threads, systemThreads) = generateThreads(markerSchema)
+        val filteredThreads = threads.filter { it.frameTable.length > 0 || it.name == "GeckoMain" }
+        val filteredDefaultVisibleThreadIds = List(
+            filteredThreads.filterNot { t ->
+                t in systemThreads
+            }.size
+        ) { index -> index }.take(config.initialVisibleThreads + 1)
+        val initialSelectedThreadIndex: List<ThreadIndex> =
+            (if (config.selectProcessTrackInitially) listOf(0) else listOf()) +
+                filteredDefaultVisibleThreadIds.drop(1).take(config.initialSelectedThreads)
+
         return Profile(
             libs = listOf(),
             counters = generateMemoryCounters() + generateCPUCounters(),
-            threads = generateThreads(markerSchema).filter { it.frameTable.length > 0 },
-            meta = profileMeta(markerSchema)
+            threads = filteredThreads,
+            meta = profileMeta(markerSchema),
+            initialVisibleThreads = filteredDefaultVisibleThreadIds,
+            initialSelectedThreads = initialSelectedThreadIndex
         )
     }
 
@@ -1454,7 +1491,8 @@ class FirefoxProfileGenerator(
             startTime = startTimeMillis,
             endTime = endTimeMillis,
             categories = CategoryE.toCategoryList(),
-            product = "JVM Application on ${jvmInformation.getString("jvmName")} ${jvmInformation.getString("jvmName")}",
+            product = "JVM Application on ${jvmInformation.getString("jvmName")} " +
+                jvmInformation.getString("jvmName"),
             stackwalk = 0,
             misc = "JVM version ${jvmInformation.getString("jvmVersion")}",
             oscpu = oscpu,
@@ -1466,17 +1504,53 @@ class FirefoxProfileGenerator(
             physicalCPUs = cpuInformation.getInt("cores"),
             logicalCPUs = cpuInformation.getInt("hwThreads"),
             sampleUnits = SampleUnits(threadCPUDelta = ThreadCPUDeltaUnit.US),
-            importedFrom = jfrFile?.toString()
+            importedFrom = jfrFile?.toString(),
+            extra = listOf(
+                ExtraProfileInfoSection(
+                    "Extra Environment Information",
+                    listOf(
+                        initialSystemPropertyEntry(), environmentVariablesEntry(),
+                        generateSystemProcessEntry()
+                    ).filterNotNull()
+                )
+            )
         )
     }
-}
 
-private val RecordedEvent.isSampledThreadCorrectProperty
-    get() = eventType.name == "jdk.NativeMethodSample" || eventType.name == "jdk.ExecutionSample"
-val RecordedEvent.sampledThread: RecordedThread
-    get() = sampledThreadOrNull!!
-val RecordedEvent.sampledThreadOrNull: RecordedThread?
-    get() = if (isSampledThreadCorrectProperty) getThread("sampledThread") else thread
+    private fun environmentVariablesEntry() =
+        generateTableEntry(
+            "jdk.InitialEnvironmentVariable",
+            "Environment Variables",
+            listOf(CC("Name", "key"), CC("Value", "value"))
+        )
+
+    private fun initialSystemPropertyEntry() =
+        generateTableEntry(
+            "jdk.InitialSystemProperty",
+            "System Property",
+            listOf(CC("Name", "key"), CC("Value", "value"))
+        )
+
+    private fun generateSystemProcessEntry() =
+        generateTableEntry(
+            "jdk.SystemProcess",
+            "System Process",
+            listOf(CC("ProcessId", "pid"), CC("Command Line", "commandLine"))
+        )
+
+    data class CC(val name: String, val key: String, val type: BasicMarkerFormatType = BasicMarkerFormatType.STRING)
+
+    private fun generateTableEntry(type: String, label: String, columns: List<CC>): ExtraProfileInfoEntry? =
+        this.eventsPerType[type]?.let {
+            val format = TableMarkerFormat(columns.map { TableColumnFormat(it.type, it.name) })
+            val value = JsonArray(
+                it.map { e ->
+                    JsonArray(columns.map { c -> JsonPrimitive(e.getString(c.key)) })
+                }
+            )
+            return ExtraProfileInfoEntry(label, format, value)
+        }
+}
 
 // source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
 fun Collection<*>.toJsonElement(): JsonElement = JsonArray(mapNotNull { it.toJsonElement() })

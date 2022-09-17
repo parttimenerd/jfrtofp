@@ -980,7 +980,7 @@ data class ExtraProfileInfoEntry(
     val label: String,
     val format: MarkerFormatType,
     // any value valid for the formatter
-    val value: MarkerFormatType
+    val value: JsonElement
 )
 
 @Serializable
@@ -1008,7 +1008,11 @@ data class Profile(
     val profilerOverhead: ProfilerOverhead? = null,
     val threads: List<Thread>,
     val profilingLog: ProfilingLog? = null,
-    val profileGatheringLog: ProfilingLog? = null
+    val profileGatheringLog: ProfilingLog? = null,
+    @Experimental
+    val initialVisibleThreads: List<ThreadIndex>? = null,
+    @Experimental
+    val initialSelectedThreads: List<ThreadIndex>? = null
 )
 
 /*
