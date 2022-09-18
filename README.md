@@ -3,14 +3,21 @@
 
 JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
 
+It works best with this custom [Firefox Profiler fork](https://github.com/parttimenerd/firefox-profiler/tree/merged)
+which includes many of our own PRs which are not yet upstream (and might be less stable).
+
 ## Basic Usage
+
+We recommend using the [jfrtofp-server](https://github.com/parttimenerd/jfrtofp-server) which includes a
+custom Firefox Profiler distribution with the converter and a webserver which serves both.
+
 Download the latest `jfrtofp-all.jar` release and simply pass the JFR file as its first argument:
 
 ```sh
   java -jar jfrtofp-all.jar samples/small_profile.jfr
 ```
 
-This will produce a `samples/small_profile.json.gz` file, you can customize the output file 
+This will produce a `samples/small_profile.json.gz` file, you can customize the output file
 by passing the `--output <file>` option.
 
 There is the possibility to produce [Speedscope](https://www.speedscope.app/) files as well, by passing the "--mode speedscope" option:

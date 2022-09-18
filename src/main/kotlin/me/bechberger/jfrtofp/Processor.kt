@@ -1687,7 +1687,6 @@ class FirefoxProfileGenerator(
                     it
                 }
             }.map { (_, eventss) ->
-                println(eventss.first().sampledThread.javaName)
                 val t = generateThread(
                     markerSchema,
                     eventss.first().sampledThread,
