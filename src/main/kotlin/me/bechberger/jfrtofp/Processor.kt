@@ -1451,7 +1451,7 @@ class FirefoxProfileGenerator(
         private val timelineOverviewEvents = setOf<String>()
         private val timelineMemoryEvents = setOf<String>("memory", "gc", "GarbageCollection")
         private val ignoredEvents =
-            setOf("jdk.ObjectAllocationSample", "jdk.OldObjectSample", "jdk.ExecutionSample", "jdk.NativeMethodSample")
+            setOf("jdk.ExecutionSample", "jdk.NativeMethodSample")
 
         private fun isIgnoredEvent(event: RecordedEvent) = ignoredEvents.contains(event.eventType.name)
 
