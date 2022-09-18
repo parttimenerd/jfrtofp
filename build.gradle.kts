@@ -81,6 +81,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.3")
     implementation("info.picocli:picocli:4.6.3")
     implementation("org.jline:jline-reader:3.21.0")
+    implementation("org.ow2.asm:asm:9.3")
 }
 
 tasks.test {

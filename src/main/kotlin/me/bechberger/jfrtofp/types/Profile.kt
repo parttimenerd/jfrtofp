@@ -972,7 +972,13 @@ data class ProfileMeta(
     val sourceCodeIsNotOnSearchfox: Boolean? = true,
     // Extra information about the profile, not shown in the "Profile Info" panel,
     // but in the more info panel
-    val extra: List<ExtraProfileInfoSection>? = null
+    val extra: List<ExtraProfileInfoSection>? = null,
+    @Experimental
+    val initialVisibleThreads: List<ThreadIndex>? = null,
+    @Experimental
+    val initialSelectedThreads: List<ThreadIndex>? = null,
+    @Experimental
+    val disableThreadOrdering: Boolean? = false
 )
 
 @Serializable
@@ -1008,11 +1014,7 @@ data class Profile(
     val profilerOverhead: ProfilerOverhead? = null,
     val threads: List<Thread>,
     val profilingLog: ProfilingLog? = null,
-    val profileGatheringLog: ProfilingLog? = null,
-    @Experimental
-    val initialVisibleThreads: List<ThreadIndex>? = null,
-    @Experimental
-    val initialSelectedThreads: List<ThreadIndex>? = null
+    val profileGatheringLog: ProfilingLog? = null
 )
 
 /*

@@ -9,6 +9,7 @@ import jdk.jfr.consumer.RecordedObject
 import jdk.jfr.consumer.RecordedStackTrace
 import jdk.jfr.consumer.RecordedThread
 import jdk.jfr.consumer.RecordingFile
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -17,6 +18,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatFunctionWithClass
+import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatRecordedClass
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.Bytes
 import me.bechberger.jfrtofp.types.Category
@@ -40,6 +43,8 @@ import me.bechberger.jfrtofp.types.MarkerPhase
 import me.bechberger.jfrtofp.types.MarkerSchema
 import me.bechberger.jfrtofp.types.MarkerSchemaDataStatic
 import me.bechberger.jfrtofp.types.MarkerSchemaDataString
+import me.bechberger.jfrtofp.types.MarkerTrackConfig
+import me.bechberger.jfrtofp.types.MarkerTrackLineConfig
 import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.NativeAllocationsTable
 import me.bechberger.jfrtofp.types.NativeSymbolTable
@@ -59,6 +64,7 @@ import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
 import me.bechberger.jfrtofp.types.ThreadIndex
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import org.jline.reader.impl.DefaultParser
+import org.objectweb.asm.Type
 import picocli.CommandLine
 import picocli.CommandLine.Option
 import java.io.InputStream
@@ -72,9 +78,9 @@ import java.time.Instant
 import java.util.NavigableMap
 import java.util.Optional
 import java.util.TreeMap
+import java.util.logging.Logger
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlin.io.path.extension
 import kotlin.math.abs
 import kotlin.math.min
@@ -579,8 +585,8 @@ class FirefoxProfileGenerator(
 
         fun getResource(tables: Tables, func: RecordedMethod, isJava: Boolean): IndexIntoResourceTable {
             return map.computeIfAbsent(func) {
-                val wholeName = func.type.name + "#" + func.name + func.descriptor
-                names.add(tables.getString(wholeName))
+                val wholeName = func.type.name
+                names.add(tables.getString(wholeName.split("$").first()))
                 if (isJava) {
                     hosts.add(tables.getString(wholeName))
                     types.add(5)
@@ -609,6 +615,59 @@ class FirefoxProfileGenerator(
         fun getString(string: String) = stringTable.getString(string)
     }
 
+    /** Helps to format types and other byte code related things */
+    object ByteCodeHelper {
+        fun formatFunctionWithClass(func: RecordedMethod) =
+            "${func.type.className}.${func.name}${formatDescriptor(func.descriptor)}"
+
+        fun formatDescriptor(descriptor: String): String {
+            val args = "(${Type.getArgumentTypes(descriptor).joinToString(", ") {
+                formatByteCodeType(it, omitPackages = true)
+            }})"
+            if (Type.getReturnType(descriptor) == Type.VOID_TYPE) {
+                return args
+            }
+            return args + ": " + formatByteCodeType(Type.getReturnType(descriptor), omitPackages = true)
+        }
+
+        fun shortenClassName(className: String): String {
+            val lastDot = className.lastIndexOf('.')
+            return if (lastDot == -1) {
+                className
+            } else {
+                className.substring(lastDot + 1)
+            }
+        }
+
+        fun formatByteCodeType(type: String, omitPackages: Boolean) =
+            formatByteCodeType(Type.getType(type), omitPackages)
+
+        fun formatByteCodeType(type: Type, omitPackages: Boolean): String = when (type.sort) {
+            Type.VOID -> "void"
+            Type.BOOLEAN -> "boolean"
+            Type.CHAR -> "char"
+            Type.BYTE -> "byte"
+            Type.SHORT -> "short"
+            Type.INT -> "int"
+            Type.FLOAT -> "float"
+            Type.LONG -> "long"
+            Type.DOUBLE -> "double"
+            Type.ARRAY -> formatByteCodeType(type.elementType, omitPackages) + "[]".repeat(type.dimensions)
+            Type.OBJECT -> if (omitPackages) shortenClassName(type.className) else type.className
+            else -> throw IllegalArgumentException("Unknown type sort: ${type.sort}")
+        }
+
+        fun formatRecordedClass(klass: RecordedClass): String {
+            val name = klass.getString("name")
+            val byteCodeName = if (name.startsWith("[")) {
+                name
+            } else {
+                "L$name;"
+            }
+            return formatByteCodeType(byteCodeName, omitPackages = false)
+        }
+    }
+
     class FuncTableWrapper {
 
         val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
@@ -621,7 +680,7 @@ class FirefoxProfileGenerator(
 
         fun getFunction(tables: Tables, func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
             return map.computeIfAbsent(func) {
-                names.add(tables.getString(func.type.className + "#" + func.name))
+                names.add(tables.getString(formatFunctionWithClass(func)))
                 isJss.add(isJava)
                 relevantForJss.add(tables.config.isRelevantForJava(func))
                 resourcess.add(tables.resourceTable.getResource(tables, func, isJava))
@@ -902,7 +961,7 @@ class FirefoxProfileGenerator(
         val stack = mutableListOf<IndexIntoStackTable?>()
         for (sample in allocationSampleEvents) {
             time.add(sample.startTime.toMillis())
-            className.add(sample.getClass("objectClass").name)
+            className.add(formatRecordedClass(sample.getClass("objectClass")))
             weight.add(sample.getLong("weight"))
             // now we pick the nearest stack trace that we access to
             val lowEntry = extensionSamplesTreeMap.floorEntry(sample.startTime.toMillis())
@@ -964,7 +1023,7 @@ class FirefoxProfileGenerator(
             stack.add(
                 tables.stackTraceTable.getMiscStack(
                     tables,
-                    sample.getClass("objectClass").name,
+                    formatRecordedClass(sample.getClass("objectClass")),
                     CategoryE.OTHER,
                     "Allocation",
                     false
@@ -1048,7 +1107,13 @@ class FirefoxProfileGenerator(
         BOOLEAN(BasicMarkerFormatType.STRING),
         BYTES(
             BasicMarkerFormatType.BYTES,
-            { event, field, prof, _ -> event.getLong(field) },
+            { event, field, prof, _ ->
+                when (val value = event.getValue<Any?>(field)) {
+                    is Long -> value.toLong()
+                    is Double -> value.toDouble()
+                    else -> throw IllegalArgumentException("Cannot convert $value to bytes")
+                }
+            },
             listOf(
                 "dataAmount", "allocated", "totalSize", "usedSize",
                 "initialSize", "reservedSize", "nonNMethodSize", "profiledSize",
@@ -1063,7 +1128,8 @@ class FirefoxProfileGenerator(
                 "baseAddress",
                 "topAddress",
                 "startAddress",
-                "reservedTopAddress", "heapAddressBits",
+                "reservedTopAddress",
+                "heapAddressBits",
                 "objectAlignment"
             )
         ),
@@ -1130,7 +1196,6 @@ class FirefoxProfileGenerator(
         TIMESPAN(
             BasicMarkerFormatType.DURATION,
             { event, field, prof, _ ->
-                println("TIMESPAN: ${event.getValue<Any?>(field)}")
                 event.getLong(field) / 1000.0
             }
         ),
@@ -1228,7 +1293,10 @@ class FirefoxProfileGenerator(
             if (st.frames.isEmpty()) {
                 0
             } else {
-                mutableMapOf<String, Any>("stack" to 10, "time" to event.startTime.toMillis())
+                mutableMapOf<String, Any>(
+                    "stack" to tables.stackTraceTable.getStack(tables, st, true, prof.config.maxStackTraceFrames),
+                    "time" to event.startTime.toMillis()
+                )
             }
         }),
         SYMBOL("string", STRING), ThreadState("name", STRING), TICKS(
@@ -1273,7 +1341,7 @@ class FirefoxProfileGenerator(
             return try {
                 converter(event, field, prof, tables)
             } catch (e: Exception) {
-                e.printStackTrace()
+                LOG.throwing("MarkerType", "convert", e)
                 TABLE.converter(event, field, prof, tables)
             }
         }
@@ -1292,14 +1360,18 @@ class FirefoxProfileGenerator(
 
             fun fromName(field: ValueDescriptor): MarkerType {
                 return map2.computeIfAbsent(Triple(field.typeName, field.name, field.contentType)) {
-                    val contentTypeResult = field.contentType?.let { map[field.contentType.lowercase().split(".").last()] }
-                    val otherResult = map[field.name.lowercase()] ?: map[field.typeName.lowercase().split(".").last()] ?: TABLE
-                    val result = if (otherResult != TABLE && contentTypeResult != null && contentTypeResult.generic) {
+                    val contentTypeResult = field.contentType?.let {
+                        map[field.contentType.lowercase().split(".").last()]
+                    }
+                    val otherResult = map[field.name.lowercase()]
+                        ?: map[field.typeName.lowercase().split(".").last()] ?: TABLE
+                    val result = if (otherResult != TABLE &&
+                        contentTypeResult != null && contentTypeResult.generic
+                    ) {
                         otherResult
                     } else {
                         contentTypeResult ?: otherResult
                     }
-                    println("Mapping ${field.typeName} ${field.name} ${field.contentType} to $result")
                     result
                 }
             }
@@ -1362,6 +1434,8 @@ class FirefoxProfileGenerator(
                     throw e
                 }
             }
+
+            private val LOG = Logger.getLogger("MarkerType")
         }
     }
 
@@ -1379,7 +1453,9 @@ class FirefoxProfileGenerator(
 
         private fun isIgnoredEvent(event: RecordedEvent) = ignoredEvents.contains(event.eventType.name)
 
-        fun isIgnoredField(field: ValueDescriptor) = (config.omitEventThreadProperty && field.name == "eventThread") || field.name == "startTime"
+        fun isIgnoredField(field: ValueDescriptor) =
+            (config.omitEventThreadProperty && field.name == "eventThread") ||
+                field.name == "startTime"
 
         fun isMemoryEvent(event: RecordedEvent) = event.eventType.name.let { name -> name in timelineMemoryEvents }
 
@@ -1423,7 +1499,6 @@ class FirefoxProfileGenerator(
                     if (name != v.name) {
                         mapping[v.name] = name
                     }
-                    println("marker label: ${v.description} ${v.label}")
                     MarkerSchemaDataString(
                         key = name,
                         label = if (v.label != null && v.label.length < 20) v.label else v.name,
@@ -1443,7 +1518,52 @@ class FirefoxProfileGenerator(
                 } else {
                     label
                 }
-                list.add(MarkerSchema(name, tooltipLabel = event.eventType.label ?: name, tableLabel = combinedLabel, display = display, data = data))
+                val trackConfig = when (name) {
+                    "jdk.CPULoad" -> MarkerTrackConfig(
+                        label = "CPU Load",
+                        height = "large",
+                        lines = listOf(
+                            MarkerTrackLineConfig(
+                                key = "jvmSystem",
+                                strokeColor = "orange",
+                                type = "line"
+                            ),
+                            MarkerTrackLineConfig(
+                                key = "jvmUser",
+                                strokeColor = "blue",
+                                type = "line"
+                            )
+                        ),
+                        isPreSelected = true
+                    )
+                    "jdk.NetworkUtilization" -> MarkerTrackConfig(
+                        label = "Network Utilization",
+                        height = "large",
+                        lines = listOf(
+                            MarkerTrackLineConfig(
+                                key = "readRate",
+                                strokeColor = "blue",
+                                type = "line"
+                            ),
+                            MarkerTrackLineConfig(
+                                key = "writeRate",
+                                strokeColor = "orange",
+                                type = "line"
+                            )
+                        )
+                    )
+                    else -> null
+                }
+                list.add(
+                    MarkerSchema(
+                        name,
+                        tooltipLabel = event.eventType.label ?: name,
+                        tableLabel = combinedLabel,
+                        display = display,
+                        data = data,
+                        trackConfig = trackConfig
+                    )
+                )
                 FieldMapping(mapping)
             }
         }
@@ -1478,7 +1598,9 @@ class FirefoxProfileGenerator(
             }
         }
         val tables = Tables(config)
-        val samplesTable = generateSamplesTable(tables, executionSamples)
+        val samplesTable =
+            if (thread == null) SamplesTable(listOf(), time = listOf())
+            else generateSamplesTable(tables, executionSamples)
         val hasObjectSamples = sortedEventsPerType["jdk.ObjectAllocationSample"]?.isNotEmpty() ?: false
         return Thread(
             processType = if (isSystemThread) "tab" else "default",
@@ -1547,19 +1669,25 @@ class FirefoxProfileGenerator(
         }
         val systemThreads = mutableSetOf<Thread>()
         val normalThreads = inThreadEvents.groupBy { it.sampledThread.javaThreadId }
-            .filter { it.value.any { e -> e.isExecutionSample } }.toList().sortedBy {
-                if (it.first == mainThreadId) {
-                    0
+            .filter {
+                // println("Thread ${it.value.first().sampledThread.javaName} has ${it.value.size} events")
+                it.value.any { e -> e.isExecutionSample } || it.value.first().sampledThread.javaName == "main"
+            }.toList().map {
+                it to if (it.first == mainThreadId) {
+                    -2
+                } else if (it.second.first().sampledThread.javaName == "main") {
+                    -1
                 } else {
-                    -it.first
+                    it.second.first().startTime.toMicros()
                 }
-            }.let {
+            }.sortedBy { (_, sortable) -> sortable }.map { it.first }.let {
                 if (config.maxThreads > 0) {
                     it.take(config.maxThreads)
                 } else {
                     it
                 }
             }.map { (_, eventss) ->
+                println(eventss.first().sampledThread.javaName)
                 val t = generateThread(
                     markerSchema,
                     eventss.first().sampledThread,
@@ -1592,23 +1720,29 @@ class FirefoxProfileGenerator(
             libs = listOf(),
             counters = generateMemoryCounters() + generateCPUCounters(),
             threads = filteredThreads,
-            meta = profileMeta(markerSchema),
-            initialVisibleThreads = filteredDefaultVisibleThreadIds,
-            initialSelectedThreads = initialSelectedThreadIndex
+            meta = profileMeta(
+                markerSchema,
+                initialVisibleThreads = filteredDefaultVisibleThreadIds,
+                initialSelectedThreads = initialSelectedThreadIndex
+            )
+
         )
     }
 
-    private fun profileMeta(markerSchema: MarkerSchemaWrapper): ProfileMeta {
+    private fun profileMeta(
+        markerSchema: MarkerSchemaWrapper,
+        initialVisibleThreads: List<ThreadIndex>,
+        initialSelectedThreads: List<ThreadIndex>
+    ): ProfileMeta {
         // TODO: include markers
         return ProfileMeta(
             interval = intervalMicros / 1_000.0,
             startTime = startTimeMillis,
             endTime = endTimeMillis,
             categories = CategoryE.toCategoryList(),
-            product = "JVM Application on ${jvmInformation.getString("jvmName")} " +
-                jvmInformation.getString("jvmName"),
+            product = "JVM Application ${jvmInformation.getString("javaArguments")}",
             stackwalk = 0,
-            misc = "JVM version ${jvmInformation.getString("jvmVersion")}",
+            misc = "JVM Version ${jvmInformation.getString("jvmVersion")}",
             oscpu = oscpu,
             platform = platform,
             markerSchema = markerSchema.toMarkerSchemaList(),
@@ -1628,7 +1762,10 @@ class FirefoxProfileGenerator(
                         generateSystemProcessEntry()
                     ).filterNotNull()
                 )
-            )
+            ),
+            initialVisibleThreads = initialVisibleThreads,
+            initialSelectedThreads = initialSelectedThreads,
+            disableThreadOrdering = true
         )
     }
 
