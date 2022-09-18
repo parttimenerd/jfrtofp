@@ -691,8 +691,9 @@ data class ProfilerOverhead(
 @Serializable
 data class SampleLikeMarkerConfig(
     val name: String,
-    val weightType: WeightType,
-    val weightField: String,
+    val label: String,
+    val weightType: WeightType? = null,
+    val weightField: String? = null,
     /** name of the property like 'allocatedClass' */
     val additionalPropField: String? = null
 )
@@ -923,7 +924,7 @@ data class ProfileMeta(
     @Required
     val symbolicated: Boolean? = true,
     @Required
-    val symbolicationNotSupported: Boolean? = false,
+    val symbolicationNotSupported: Boolean? = true,
     // The Update channel for this build of the application.
     // This property is landed in Firefox 67, and is optional because older
     // processed profile versions may not have them. No upgrader was necessary.

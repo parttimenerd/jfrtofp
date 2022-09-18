@@ -53,6 +53,7 @@ import me.bechberger.jfrtofp.types.ProfileMeta
 import me.bechberger.jfrtofp.types.RawMarkerTable
 import me.bechberger.jfrtofp.types.ResourceTable
 import me.bechberger.jfrtofp.types.SampleGroup
+import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.types.SampleUnits
 import me.bechberger.jfrtofp.types.SamplesTable
 import me.bechberger.jfrtofp.types.StackTable
@@ -62,6 +63,7 @@ import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.types.Thread
 import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
 import me.bechberger.jfrtofp.types.ThreadIndex
+import me.bechberger.jfrtofp.types.WeightType
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import org.jline.reader.impl.DefaultParser
 import org.objectweb.asm.Type
@@ -207,7 +209,7 @@ data class Config(
     val useNativeAllocViewForAllocations: Boolean = true,
     /** maximum number of stack frames */
     val maxStackTraceFrames: Int = Int.MAX_VALUE,
-    val maxThreads: Int = 100,
+    val maxThreads: Int = Int.MAX_VALUE,
     val omitEventThreadProperty: Boolean = true,
     val maxExecutionSamplesPerThread: Int = -1,
     val maxMiscSamplesPerThread: Int = -1,
@@ -1200,7 +1202,7 @@ class FirefoxProfileGenerator(
             }
         ),
 
-        NANOS(BasicMarkerFormatType.NANOSECONDS, { event, field, prof, _ -> event.getLong(field) }),
+        NANOS(BasicMarkerFormatType.MILLISECONDS, { event, field, prof, _ -> event.getLong(field) / 1000.0 }),
         PERCENTAGE(
             BasicMarkerFormatType.PERCENTAGE,
             { event, field, prof, _ -> event.getDouble(field) }
@@ -1642,8 +1644,47 @@ class FirefoxProfileGenerator(
             funcTable = tables.funcTable.toFuncTable(),
             stringArray = tables.stringTable.toStringTable(),
             resourceTable = tables.resourceTable.toResourceTable(),
-            nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf())
+            nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf()),
+            sampleLikeMarkersConfig = generateSampleLikeMarkersConfig(
+                sortedEventsPerType
+            )
         )
+    }
+
+    fun generateSampleLikeMarkersConfig(sortedEventsPerType: Map<String, List<RecordedEvent>>) =
+        sortedEventsPerType.values.map { it.first() }
+            .filter { it.stackTrace != null && !it.isExecutionSample }
+            .mapNotNull {
+                generateSampleLikeMarkersConfig(it) ?: System.out.println("unsupported type ${it.eventType.name}")
+                    .let { null }
+            }
+
+    fun generateSampleLikeMarkersConfig(event: RecordedEvent): SampleLikeMarkerConfig? {
+        val name = event.eventType.name
+        val label = event.eventType.label ?: name
+        return when (name) {
+            "jdk.AllocationRequiringGC" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "size")
+            "jdk.ClassDefine" -> SampleLikeMarkerConfig(name, label)
+            "jdk.ClassLoad" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
+            "jdk.Deoptimization" -> SampleLikeMarkerConfig(name, label)
+            "jdk.FileRead" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesRead")
+            "jdk.FileWrite" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesWritten")
+            "jdk.JavaErrorThrow" -> SampleLikeMarkerConfig(name, label)
+            "jdk.JavaExceptionThrow" -> SampleLikeMarkerConfig(name, label)
+            "jdk.JavaMonitorEnter" -> SampleLikeMarkerConfig(name, label)
+            "jdk.JavaMonitorWait" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "timeout")
+            "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "weight")
+            "jdk.ObjectAllocationInNewTLAB" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "allocationSize")
+            "jdk.ObjectAllocationOutsideTLAB" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "allocationSize")
+            "jdk.ProcessStart" -> SampleLikeMarkerConfig(name, label)
+            "jdk.SocketRead" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesRead")
+            "jdk.SocketWrite" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesWritten")
+            "jdk.SystemGC" -> SampleLikeMarkerConfig(name, label)
+            "jdk.ThreadPark" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
+            "jdk.ThreadSleep" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
+            "jdk.ThreadStart" -> SampleLikeMarkerConfig(name, label)
+            else -> null
+        }
     }
 
     private fun isGCThread(thread: RecordedThread) = thread.osName.startsWith("GC Thread") && thread.javaName == null
@@ -1670,7 +1711,6 @@ class FirefoxProfileGenerator(
         val systemThreads = mutableSetOf<Thread>()
         val normalThreads = inThreadEvents.groupBy { it.sampledThread.javaThreadId }
             .filter {
-                // println("Thread ${it.value.first().sampledThread.javaName} has ${it.value.size} events")
                 it.value.any { e -> e.isExecutionSample } || it.value.first().sampledThread.javaName == "main"
             }.toList().map {
                 it to if (it.first == mainThreadId) {
@@ -1801,6 +1841,10 @@ class FirefoxProfileGenerator(
             )
             return ExtraProfileInfoEntry(label, format, value)
         }
+
+    companion object {
+        private val LOG = Logger.getLogger("Converter")
+    }
 }
 
 // source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
