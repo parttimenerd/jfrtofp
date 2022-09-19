@@ -683,6 +683,16 @@ data class ProfilerOverhead(
     val mainThreadIndex: ThreadIndex
 )
 
+@Experimental
+@Serializable
+data class SampleLikeMarkerConfigEntry(
+    val label: String,
+    val key: String,
+    val weightType: WeightType? = null,
+    val weightField: String? = null,
+    val stackTraceField: String? = null
+)
+
 /**
  * configure markers for which a SamplesLikeTable can be generated
  * (using the cause property for the stacktrace)
@@ -690,12 +700,12 @@ data class ProfilerOverhead(
 @Experimental
 @Serializable
 data class SampleLikeMarkerConfig(
-    val name: String,
+    val marker: String,
     val label: String,
+    val key: String,
     val weightType: WeightType? = null,
     val weightField: String? = null,
-    /** name of the property like 'allocatedClass' */
-    val additionalPropField: String? = null
+    val stackTraceField: String? = null
 )
 
 /**

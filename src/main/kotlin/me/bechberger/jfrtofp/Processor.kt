@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
 import me.bechberger.jfrtofp.CategoryE.Companion.MISC_OTHER
+import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatDescriptor
 import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatFunctionWithClass
 import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatRecordedClass
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
@@ -889,9 +890,9 @@ class FirefoxProfileGenerator(
         fun getMiscStack(
             tables: Tables,
             name: String,
-            category: CategoryE,
-            subcategory: String,
-            isNative: Boolean
+            category: CategoryE = CategoryE.MISC,
+            subcategory: String = "Other",
+            isNative: Boolean = false
         ): IndexIntoStackTable {
             return miscStacks.computeIfAbsent(name) {
                 val (cat, sub) = category.sub(subcategory)
@@ -1067,6 +1068,12 @@ class FirefoxProfileGenerator(
                 }.toMap(mutableMapOf())
             data["type"] = event.eventType.name.toJsonElement()
             data["startTime"] = (event.startTime.toMillis() - prof.startTimeMillis).toJsonElement()
+            when (event.eventType.name) {
+                "jdk.ObjectAllocationSample" -> {
+                    data["_class"] = tables.stackTraceTable.getMiscStack(tables, formatRecordedClass(event.getClass("objectClass")))
+                        .toJsonElement()
+                }
+            }
             datas.add(data)
         }
 
@@ -1199,7 +1206,7 @@ class FirefoxProfileGenerator(
         TIMESPAN(
             BasicMarkerFormatType.DURATION,
             { event, field, prof, _ ->
-                event.getLong(field) / 1000.0
+                event.getLong(field) / 1000_000.0
             }
         ),
 
@@ -1320,11 +1327,11 @@ class FirefoxProfileGenerator(
         ),
         CLASS(
             BasicMarkerFormatType.STRING,
-            { event, field, prof, _ -> classToString(event.getValue<RecordedObject>(field)) }
+            { event, field, prof, _ -> formatRecordedClass(event.getValue<RecordedClass>(field)) }
         ),
         METHOD(
             BasicMarkerFormatType.STRING,
-            { event, field, prof, _ -> methodToString(event.getValue<RecordedObject>(field)) }
+            { event, field, prof, _ -> formatFunctionWithClass(event.getValue<RecordedMethod>(field)) }
         );
 
         constructor(childField: String, type: MarkerType, generic: Boolean = false) : this(
@@ -1378,22 +1385,6 @@ class FirefoxProfileGenerator(
                     result
                 }
             }
-
-            internal fun classToString(klass: RecordedObject): String {
-                return if (klass.getValue<RecordedObject>("package") == null) {
-                    klass.getValue("name")
-                } else {
-                    klass.getValue<RecordedObject>("package")
-                        .getValue<String>("name") + "." + klass.getValue<String>("name")
-                }
-            }
-
-            internal fun methodToString(method: RecordedObject) =
-                "${classToString(method.getValue("type"))}.${method.getString("name")}.${
-                method.getString(
-                    "descriptor"
-                )
-                }"
 
             fun tableFormatter(
                 event: RecordedObject,
@@ -1654,36 +1645,50 @@ class FirefoxProfileGenerator(
     fun generateSampleLikeMarkersConfig(sortedEventsPerType: Map<String, List<RecordedEvent>>) =
         sortedEventsPerType.values.map { it.first() }
             .filter { it.stackTrace != null && !it.isExecutionSample }
-            .mapNotNull {
+            .flatMap {
                 generateSampleLikeMarkersConfig(it)
             }
 
-    fun generateSampleLikeMarkersConfig(event: RecordedEvent): SampleLikeMarkerConfig? {
+    fun generateSampleLikeMarkersConfig(event: RecordedEvent): List<SampleLikeMarkerConfig> {
         val name = event.eventType.name
         val label = event.eventType.label ?: name
-        return when (name) {
-            "jdk.AllocationRequiringGC" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "size")
-            "jdk.ClassDefine" -> SampleLikeMarkerConfig(name, label)
-            "jdk.ClassLoad" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
-            "jdk.Deoptimization" -> SampleLikeMarkerConfig(name, label)
-            "jdk.FileRead" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesRead")
-            "jdk.FileWrite" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesWritten")
-            "jdk.JavaErrorThrow" -> SampleLikeMarkerConfig(name, label)
-            "jdk.JavaExceptionThrow" -> SampleLikeMarkerConfig(name, label)
-            "jdk.JavaMonitorEnter" -> SampleLikeMarkerConfig(name, label)
-            "jdk.JavaMonitorWait" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "timeout")
-            "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "weight")
-            "jdk.ObjectAllocationInNewTLAB" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "allocationSize")
-            "jdk.ObjectAllocationOutsideTLAB" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "allocationSize")
-            "jdk.ProcessStart" -> SampleLikeMarkerConfig(name, label)
-            "jdk.SocketRead" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesRead")
-            "jdk.SocketWrite" -> SampleLikeMarkerConfig(name, label, WeightType.BYTES, "bytesWritten")
-            "jdk.SystemGC" -> SampleLikeMarkerConfig(name, label)
-            "jdk.ThreadPark" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
-            "jdk.ThreadSleep" -> SampleLikeMarkerConfig(name, label, WeightType.TRACING, "duration")
-            "jdk.ThreadStart" -> SampleLikeMarkerConfig(name, label)
-            else -> null
-        }
+        return listOfNotNull(
+            when (name) {
+                "jdk.AllocationRequiringGC" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "size")
+                "jdk.ClassDefine" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.ClassLoad" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "duration")
+                "jdk.Deoptimization" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.FileRead" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "bytesRead")
+                "jdk.FileWrite" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "bytesWritten")
+                "jdk.JavaErrorThrow" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.JavaExceptionThrow" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.JavaMonitorEnter" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.JavaMonitorWait" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "timeout")
+                "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "weight")
+                "jdk.ObjectAllocationInNewTLAB" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "allocationSize")
+                "jdk.ObjectAllocationOutsideTLAB" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "allocationSize")
+                "jdk.ProcessStart" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.SocketRead" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "bytesRead")
+                "jdk.SocketWrite" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "bytesWritten")
+                "jdk.SystemGC" -> SampleLikeMarkerConfig(name, label, name)
+                "jdk.ThreadPark" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "duration")
+                "jdk.ThreadSleep" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "duration")
+                "jdk.ThreadStart" -> SampleLikeMarkerConfig(name, label, name)
+                else -> null
+            }
+        ) + listOfNotNull(
+            when (name) {
+                "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(
+                    name,
+                    "$label Classes",
+                    "${name}_class",
+                    WeightType.BYTES,
+                    "weight",
+                    "_class"
+                )
+                else -> null
+            }
+        )
     }
 
     private fun isGCThread(thread: RecordedThread) = thread.osName.startsWith("GC Thread") && thread.javaName == null
@@ -1836,7 +1841,7 @@ class FirefoxProfileGenerator(
             val value = JsonArray(
                 it.map { e ->
                     JsonArray(columns.map { c -> JsonPrimitive(e.getString(c.key)) })
-               }
+                }
             )
             return ExtraProfileInfoEntry(label, format, value)
         }
