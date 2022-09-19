@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
+import me.bechberger.jfrtofp.CategoryE.Companion.MISC_OTHER
 import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatFunctionWithClass
 import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatRecordedClass
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
@@ -308,7 +309,8 @@ enum class CategoryE(
         "Operating System, Network",
         "lightgrey"
     ),
-    OS_PROCESS("Operating System, Processor", "lightgrey"), OS("Operating System", "lightgrey");
+    OS_PROCESS("Operating System, Processor", "lightgrey"), OS("Operating System", "lightgrey"),
+    MISC("Misc", "lightgrey", mutableListOf("Other"));
 
     val index: Int = ordinal
 
@@ -329,6 +331,8 @@ enum class CategoryE(
         }
 
         fun fromName(displayName: String) = map[displayName] ?: OTHER
+
+        val MISC_OTHER = MISC.sub("Other")
     }
 }
 
@@ -346,11 +350,7 @@ class FirefoxProfileGenerator(
         jfrFile = jfrFile
     )
 
-    private val eventsPerType: Map<String, List<RecordedEvent>>
-
-    init {
-        eventsPerType = events.groupByType()
-    }
+    private val eventsPerType: Map<String, List<RecordedEvent>> = events.groupByType()
 
     private val intervalMicros =
         round(
@@ -724,22 +724,25 @@ class FirefoxProfileGenerator(
         val lines = mutableListOf<Int?>()
         private val miscFrames = mutableMapOf<String, IndexIntoStringTable>()
 
-        fun getFrame(tables: Tables, frame: RecordedFrame, isInGCThread: Boolean): IndexIntoFrameTable {
+        fun getFrame(
+            tables: Tables,
+            frame: RecordedFrame,
+            category: Pair<Int, Int>? = null
+        ): IndexIntoFrameTable {
             val func = tables.funcTable.getFunction(tables, frame.method, frame.isJavaFrame)
             val line = if (frame.lineNumber == -1) null else frame.lineNumber
             return map.computeIfAbsent(func to line) {
-                val (category, sub) = if (isInGCThread) {
-                    CategoryE.GC.sub(frame.type)
-                } else if (tables.config.useNonProjectCategory && frame.isJavaFrame && tables.config.isNonProjectType(
-                        frame.method.type
-                    )
-                ) {
-                    CategoryE.NON_PROJECT_JAVA.sub(frame.type)
-                } else if (frame.isJavaFrame) {
-                    CategoryE.JAVA.sub(frame.type)
-                } else {
-                    CategoryE.CPP.sub(frame.type)
-                }
+                val (category, sub) = category
+                    ?: if (tables.config.useNonProjectCategory && frame.isJavaFrame && tables.config.isNonProjectType(
+                            frame.method.type
+                        )
+                    ) {
+                        CategoryE.NON_PROJECT_JAVA.sub(frame.type)
+                    } else if (frame.isJavaFrame) {
+                        CategoryE.JAVA.sub(frame.type)
+                    } else {
+                        CategoryE.CPP.sub(frame.type)
+                    }
                 funcs.add(func)
                 categories.add(category)
                 subcategories.add(sub)
@@ -823,10 +826,10 @@ class FirefoxProfileGenerator(
             tables: Tables,
             stackTrace: RecordedStackTrace,
             stackTrace2: RecordedStackTrace,
-            isInGCThread: Boolean
+            category: Pair<Int, Int>? = null
         ): IndexIntoStackTable {
-            val list = getHashedFrameList(tables, stackTrace, isInGCThread)
-            val list2 = getHashedFrameList(tables, stackTrace2, isInGCThread)
+            val list = getHashedFrameList(tables, stackTrace, category)
+            val list2 = getHashedFrameList(tables, stackTrace2, category)
             var commonCount = min(list.size, list2.size)
             for (i in 0 until min(list.size, list2.size)) {
                 if (list[i] != list2[i]) {
@@ -839,17 +842,17 @@ class FirefoxProfileGenerator(
         private fun getHashedFrameList(
             tables: Tables,
             stackTrace: RecordedStackTrace,
-            isInGCThread: Boolean
+            category: Pair<Int, Int>? = null
         ) =
-            HashedList(stackTrace.frames.reversed().map { tables.frameTable.getFrame(tables, it, isInGCThread) })
+            HashedList(stackTrace.frames.reversed().map { tables.frameTable.getFrame(tables, it, category) })
 
         fun getStack(
             tables: Tables,
             stackTrace: RecordedStackTrace,
-            isInGCThread: Boolean,
+            category: Pair<Int, Int>? = null,
             maxStackTraceFrames: Int = Int.MAX_VALUE
         ): IndexIntoStackTable {
-            return getStack(tables, getHashedFrameList(tables, stackTrace, isInGCThread), maxStackTraceFrames)
+            return getStack(tables, getHashedFrameList(tables, stackTrace, category), maxStackTraceFrames)
         }
 
         fun getStack(
@@ -928,8 +931,7 @@ class FirefoxProfileGenerator(
                     tables.stackTraceTable.getStack(
                         tables,
                         it,
-                        isGCThread(sample.sampledThread),
-                        config.maxStackTraceFrames
+                        maxStackTraceFrames = config.maxStackTraceFrames
                     )
                 }
             )
@@ -954,8 +956,7 @@ class FirefoxProfileGenerator(
      */
     private fun generateJsAllocationsTable(
         tables: Tables,
-        allocationSampleEvents: List<RecordedEvent>,
-        inGCThread: Boolean
+        allocationSampleEvents: List<RecordedEvent>
     ): JsAllocationsTable {
         val time = mutableListOf<Milliseconds>()
         val className = mutableListOf<String>()
@@ -985,18 +986,18 @@ class FirefoxProfileGenerator(
                 val diff = abs(sample.startTime.toMicros() - nearestSampleEvent.startTime.toMicros())
                 if (diff <= intervalMicros * 0.25 || lowEntry == null || highEntry == null) {
                     // take the nearest one if it is less than 25% of the interval away
-                    tables.stackTraceTable.getStack(tables, nearestSampleEvent.stackTrace, inGCThread)
+                    tables.stackTraceTable.getStack(tables, nearestSampleEvent.stackTrace, CategoryE.MISC_OTHER)
                 } else if (diff <= intervalMicros) { // take the common prefix stack
                     tables.stackTraceTable.getCommonStack(
                         tables,
                         lowEntry.value.stackTrace,
                         highEntry.value.stackTrace,
-                        inGCThread
+                        MISC_OTHER
                     )
                 } else {
                     null
                 }
-            } ?: tables.stackTraceTable.getMiscStack(tables, "<unknown>", CategoryE.OTHER, "Unknown", inGCThread)
+            } ?: tables.stackTraceTable.getMiscStack(tables, "<unknown>", CategoryE.OTHER, "Unknown", false)
             stack.add(stackTraceIndex)
         }
         return JsAllocationsTable(
@@ -1026,8 +1027,8 @@ class FirefoxProfileGenerator(
                 tables.stackTraceTable.getMiscStack(
                     tables,
                     formatRecordedClass(sample.getClass("objectClass")),
-                    CategoryE.OTHER,
-                    "Allocation",
+                    CategoryE.MISC,
+                    "Other",
                     false
                 )
             )
@@ -1296,7 +1297,7 @@ class FirefoxProfileGenerator(
                 0
             } else {
                 mutableMapOf<String, Any>(
-                    "stack" to tables.stackTraceTable.getStack(tables, st, true, prof.config.maxStackTraceFrames),
+                    "stack" to tables.stackTraceTable.getStack(tables, st, MISC_OTHER, prof.config.maxStackTraceFrames),
                     "time" to event.startTime.toMillis()
                 )
             }
@@ -1449,7 +1450,7 @@ class FirefoxProfileGenerator(
         val list = mutableListOf<MarkerSchema>()
         val names = mutableMapOf<String, FieldMapping>()
         private val timelineOverviewEvents = setOf<String>()
-        private val timelineMemoryEvents = setOf<String>("memory", "gc", "GarbageCollection")
+        private val timelineMemoryEvents = setOf("memory", "gc", "GarbageCollection")
         private val ignoredEvents =
             setOf("jdk.ExecutionSample", "jdk.NativeMethodSample")
 
@@ -1621,8 +1622,7 @@ class FirefoxProfileGenerator(
                 hasObjectSamples
             ) generateJsAllocationsTable(
                 tables,
-                sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList(),
-                isGCThread(thread)
+                sortedEventsPerType["jdk.ObjectAllocationSample"] ?: emptyList()
             ) else null,
             nativeAllocations = if (thread != null && config.enableAllocations &&
                 config.useNativeAllocViewForAllocations && hasObjectSamples
@@ -1655,8 +1655,7 @@ class FirefoxProfileGenerator(
         sortedEventsPerType.values.map { it.first() }
             .filter { it.stackTrace != null && !it.isExecutionSample }
             .mapNotNull {
-                generateSampleLikeMarkersConfig(it) ?: System.out.println("unsupported type ${it.eventType.name}")
-                    .let { null }
+                generateSampleLikeMarkersConfig(it)
             }
 
     fun generateSampleLikeMarkersConfig(event: RecordedEvent): SampleLikeMarkerConfig? {
@@ -1795,11 +1794,11 @@ class FirefoxProfileGenerator(
             extra = listOf(
                 ExtraProfileInfoSection(
                     "Extra Environment Information",
-                    listOf(
+                    listOfNotNull(
                         initialSystemPropertyEntry(),
                         environmentVariablesEntry(),
                         generateSystemProcessEntry()
-                    ).filterNotNull()
+                    )
                 )
             ),
             initialVisibleThreads = initialVisibleThreads,
@@ -1833,11 +1832,11 @@ class FirefoxProfileGenerator(
 
     private fun generateTableEntry(type: String, label: String, columns: List<CC>): ExtraProfileInfoEntry? =
         this.eventsPerType[type]?.let {
-            val format = TableMarkerFormat(columns.map { TableColumnFormat(it.type, it.name) })
+            val format = TableMarkerFormat(columns.map { column -> TableColumnFormat(column.type, column.name) })
             val value = JsonArray(
                 it.map { e ->
                     JsonArray(columns.map { c -> JsonPrimitive(e.getString(c.key)) })
-                }
+               }
             )
             return ExtraProfileInfoEntry(label, format, value)
         }
