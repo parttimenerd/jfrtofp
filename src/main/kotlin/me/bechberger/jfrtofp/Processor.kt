@@ -86,6 +86,7 @@ import java.util.logging.Logger
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
 import kotlin.io.path.extension
+import kotlin.io.path.relativeTo
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
@@ -176,10 +177,15 @@ class ConfigMixin {
     @Option(names = ["--max-misc-samples"], description = ["Maximum number of misc samples per thread"])
     var maxMiscSamplesPerThread: Int = -1
 
+    @Option(names = ["--source"], description = ["SOURCE|SOURCE_URL"])
+    var source: String = ""
+
     fun toConfig() = Config(
         nonProjectPackagePrefixes = nonProjectPackagePrefixes,
         maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
-        maxMiscSamplesPerThread = maxMiscSamplesPerThread
+        maxMiscSamplesPerThread = maxMiscSamplesPerThread,
+        sourcePath = if (source.isNotEmpty()) Path.of(source.split("|")[0]) else null,
+        sourceUrl = if (source.isNotEmpty()) source.split("|")[1] else null
     )
 
     companion object {
@@ -217,7 +223,9 @@ data class Config(
     val maxMiscSamplesPerThread: Int = -1,
     val initialVisibleThreads: Int = 10,
     val selectProcessTrackInitially: Boolean = true,
-    val initialSelectedThreads: Int = 10
+    val initialSelectedThreads: Int = 10,
+    val sourcePath: Path? = null,
+    val sourceUrl: String? = null
 ) {
 
     fun isRelevantForJava(func: RecordedMethod) = false
@@ -613,7 +621,8 @@ class FirefoxProfileGenerator(
         val resourceTable: ResourceTableWrapper = ResourceTableWrapper(),
         val frameTable: FrameTableWrapper = FrameTableWrapper(),
         val stackTraceTable: StackTableWrapper = StackTableWrapper(),
-        val funcTable: FuncTableWrapper = FuncTableWrapper()
+        val funcTable: FuncTableWrapper = FuncTableWrapper(),
+        val classToUrl: (String, String) -> String?
     ) {
         fun getString(string: String) = stringTable.getString(string)
     }
@@ -679,10 +688,14 @@ class FirefoxProfileGenerator(
         private val relevantForJss = mutableListOf<Boolean>()
         private val resourcess = mutableListOf<IndexIntoResourceTable>() // -1 if not present
         val fileNames = mutableListOf<IndexIntoStringTable?>()
+        val sourceUrls = mutableListOf<IndexIntoStringTable?>()
         private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
         fun getFunction(tables: Tables, func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
             return map.computeIfAbsent(func) {
+                val type = func.type
+                val url = tables.classToUrl(type.className.split("$").last(), type.pkg)
+                sourceUrls.add(url?.let { tables.getString(url) })
                 names.add(tables.getString(formatFunctionWithClass(func)))
                 isJss.add(isJava)
                 relevantForJss.add(tables.config.isRelevantForJava(func))
@@ -709,7 +722,8 @@ class FirefoxProfileGenerator(
             isJS = isJss,
             relevantForJS = relevantForJss,
             resource = resourcess,
-            fileName = fileNames
+            fileName = fileNames,
+            sourceUrl = sourceUrls
         )
 
         val size: Int
@@ -1009,8 +1023,19 @@ class FirefoxProfileGenerator(
         )
     }
 
+    private val fileFinder = FileFinder()
+
+    private fun classToUrl(packageName: String, className: String) = fileFinder.findFile(packageName, className)?.let { file ->
+        config.sourceUrl?.let {
+            config.sourcePath!!.let { sourcePath ->
+                val relativePath = file.relativeTo(sourcePath)
+                config.sourceUrl + "/" + relativePath
+            }
+        }
+    }
+
     init {
-        this.startTimeMillis
+        config.sourcePath?.let { fileFinder.addFolder(it) }
     }
 
     /** like generateJsAllocationsTable, but models the allocated objects in the NativeAllocationTable */
@@ -1591,7 +1616,7 @@ class FirefoxProfileGenerator(
                 it
             }
         }
-        val tables = Tables(config)
+        val tables = Tables(config, classToUrl = this::classToUrl)
         val samplesTable =
             if (thread == null) SamplesTable(listOf(), time = listOf())
             else generateSamplesTable(tables, executionSamples)
