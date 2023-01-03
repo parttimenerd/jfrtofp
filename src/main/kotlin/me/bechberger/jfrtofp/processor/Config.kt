@@ -146,6 +146,8 @@ data class Config(
         "jdk.InitialSystemProperty",
         "jdk.InitialEnvironmentVariable",
         "jdk.SystemProcess",
+        "jdk.ModuleExport",
+        "jdk.ModuleRequire"
     ),
 ) {
 

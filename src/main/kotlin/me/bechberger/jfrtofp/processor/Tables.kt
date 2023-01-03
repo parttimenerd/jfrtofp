@@ -213,7 +213,7 @@ class ResourceTableWrapper(val tables: Tables) {
 
 class FuncTableWrapper(val tables: Tables) {
 
-    private val map = mutableMapOf<String, IndexIntoFuncTable>()
+    private val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
     private val isJss = mutableListOf<Boolean>()
     private val relevantForJss = mutableListOf<Boolean>()
@@ -236,15 +236,8 @@ class FuncTableWrapper(val tables: Tables) {
     private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
-    private fun methodToString(method: RecordedMethod): String {
-        val className = method.type.name
-        val methodName = method.name
-        val signature = method.descriptor
-        return "$className.$methodName$signature"
-    }
-
     internal fun getFunction(func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
-        return map.computeIfAbsent(methodToString(func)) {
+        return map.computeIfAbsent(func) {
             val type = func.type
             val url =
                 tables.classToUrl(type.className.split("$").last(), type.pkg) ?: "http://localhost/files?className=${type.className}&pkg=${type.pkg}"

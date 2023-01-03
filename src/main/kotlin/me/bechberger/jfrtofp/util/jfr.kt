@@ -64,7 +64,7 @@ fun List<RecordedEvent>.groupByType() =
     groupBy { if (it.eventType.name == "jdk.NativeMethodSample") "jdk.ExecutionSample" else it.eventType.name }
 
 val RecordedEvent.realThread: RecordedThread?
-    get() = thread ?: sampledThreadOrNull
+    get() = thread ?: sampledThreadOrNull ?: (if (hasField("thread")) getThread("thread") else null)
 
 /** -1 if not thread present */
 val RecordedEvent.realThreadId: Long

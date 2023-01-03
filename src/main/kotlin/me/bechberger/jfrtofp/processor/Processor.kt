@@ -803,8 +803,8 @@ class Processor(val config: Config, val jfrFile: Path) {
 }
 
 fun main() {
-    val processor = Processor(Config(), Path.of("samples/small_profile.jfr"))
-    processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/small_profile.json.gz").outputStream())
-    /* val processor = Processor(Config(), Path.of("samples/flight_large.jfr"))
-     processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/flight_large.json.gz").outputStream())*/
+    /*val processor = Processor(Config(), Path.of("samples/small_profile.jfr"))
+    processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/small_profile.json.gz").outputStream())*/
+    val processor = Processor(Config(), Path.of("samples/flight_large.jfr"))
+     processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/flight_large.json.gz").outputStream())
 }
