@@ -83,14 +83,13 @@ enum class BasicMarkerFormatType : MarkerFormatType {
     DECIMAL,
 
     @SerialName("list")
-    @Experimental
     LIST,
 }
 
 @Experimental
 @Serializable
 data class TableColumnFormat(
-    val type: BasicMarkerFormatType? = null,
+    val type: MarkerFormatType? = null,
     val label: String? = null
 )
 
@@ -139,22 +138,42 @@ enum class MarkerDisplayLocation {
 }
 
 @Serializable
+enum class MarkerTrackConfigLineType {
+    @SerialName("bar")
+    BAR,
+    @SerialName("line")
+    LINE,
+}
+
+@Serializable
 data class MarkerTrackLineConfig(
     val key: String,
     val fillColor: String? = null,
+    // magenta, purple, teal, green, yellow, orange, red, transparent, grey, string
     val strokeColor: String? = null,
     val width: Int? = null,
     // "line" or "bar"
-    val type: String
+    val type: MarkerTrackConfigLineType? = null,
+    val isPreScaled: Boolean? = null
 )
+
+@Serializable
+enum class MarkerTrackConfigLineHeight {
+    @SerialName("small")
+    SMALL,
+    @SerialName("medium")
+    MEDIUM,
+    @SerialName("large")
+    LARGE
+}
 
 @Serializable
 data class MarkerTrackConfig(
     val label: String,
-    /* small, medium, large */
-    val height: String? = null,
-    val lines: List<MarkerTrackLineConfig>,
-    val isPreSelected: Boolean = false
+    val tooltip: String? = null,
+    val height: MarkerTrackConfigLineHeight? = null,
+    val isPreSelected: Boolean = false,
+    val lines: List<MarkerTrackLineConfig>
 )
 
 @Serializable
@@ -180,6 +199,7 @@ data class MarkerSchema(
 
     val data: List<MarkerSchemaData>,
 
+    @Experimental
     val trackConfig: MarkerTrackConfig? = null
 )
 
@@ -191,7 +211,9 @@ data class MarkerSchemaDataString(
     val key: String,
     val label: String? = null,
     val format: MarkerFormatType,
-    val searchable: Boolean? = null
+    val searchable: Boolean? = null,
+    // hidden in the side bar and tooltips?
+    val isHidden: Boolean? = null
 ) : MarkerSchemaData()
 
 // This type is a static bit of text that will be displayed

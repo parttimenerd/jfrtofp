@@ -9,22 +9,14 @@ import jdk.jfr.consumer.RecordedObject
 import jdk.jfr.consumer.RecordedStackTrace
 import jdk.jfr.consumer.RecordedThread
 import jdk.jfr.consumer.RecordingFile
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.encodeToStream
-import me.bechberger.jfrtofp.CategoryE.Companion.MISC_OTHER
-import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatDescriptor
-import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatFunctionWithClass
-import me.bechberger.jfrtofp.FirefoxProfileGenerator.ByteCodeHelper.formatRecordedClass
+import me.bechberger.jfrtofp.processor.CategoryE
+import me.bechberger.jfrtofp.processor.CategoryE.Companion.MISC_OTHER
+import me.bechberger.jfrtofp.processor.Config
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.Bytes
-import me.bechberger.jfrtofp.types.Category
 import me.bechberger.jfrtofp.types.Counter
 import me.bechberger.jfrtofp.types.CounterSamplesTable
 import me.bechberger.jfrtofp.types.ExtraProfileInfoEntry
@@ -46,6 +38,8 @@ import me.bechberger.jfrtofp.types.MarkerSchema
 import me.bechberger.jfrtofp.types.MarkerSchemaDataStatic
 import me.bechberger.jfrtofp.types.MarkerSchemaDataString
 import me.bechberger.jfrtofp.types.MarkerTrackConfig
+import me.bechberger.jfrtofp.types.MarkerTrackConfigLineHeight
+import me.bechberger.jfrtofp.types.MarkerTrackConfigLineType
 import me.bechberger.jfrtofp.types.MarkerTrackLineConfig
 import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.NativeAllocationsTable
@@ -59,7 +53,6 @@ import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.types.SampleUnits
 import me.bechberger.jfrtofp.types.SamplesTable
 import me.bechberger.jfrtofp.types.StackTable
-import me.bechberger.jfrtofp.types.StringTable
 import me.bechberger.jfrtofp.types.TableColumnFormat
 import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.types.Thread
@@ -67,283 +60,34 @@ import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
 import me.bechberger.jfrtofp.types.ThreadIndex
 import me.bechberger.jfrtofp.types.WeightType
 import me.bechberger.jfrtofp.types.resourceTypeEnum
-import org.jline.reader.impl.DefaultParser
-import org.objectweb.asm.Type
-import picocli.CommandLine
-import picocli.CommandLine.Option
-import java.io.InputStream
-import java.io.OutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
+import me.bechberger.jfrtofp.util.ByteCodeHelper.formatFunctionWithClass
+import me.bechberger.jfrtofp.util.ByteCodeHelper.formatRecordedClass
+import me.bechberger.jfrtofp.util.HashedList
+import me.bechberger.jfrtofp.util.StringTableWrapper
+import me.bechberger.jfrtofp.util.className
+import me.bechberger.jfrtofp.util.estimateIntervalInMicros
+import me.bechberger.jfrtofp.util.groupByType
+import me.bechberger.jfrtofp.util.isExecutionSample
+import me.bechberger.jfrtofp.util.isSystemThread
+import me.bechberger.jfrtofp.util.pkg
+import me.bechberger.jfrtofp.util.sampledThread
+import me.bechberger.jfrtofp.util.sampledThreadOrNull
+import me.bechberger.jfrtofp.util.toJsonElement
+import me.bechberger.jfrtofp.util.toMicros
+import me.bechberger.jfrtofp.util.toMillis
 import java.lang.reflect.Modifier
-import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Instant
 import java.util.NavigableMap
 import java.util.Optional
 import java.util.TreeMap
 import java.util.logging.Logger
 import java.util.stream.LongStream
-import java.util.zip.GZIPOutputStream
-import kotlin.io.path.extension
 import kotlin.io.path.relativeTo
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
 import kotlin.math.roundToLong
 import kotlin.streams.toList
-
-fun Instant.toMicros(): Long = epochSecond * 1_000_000 + nano / 1_000
-
-fun Instant.toMillis(): Milliseconds = toMicros() / 1_000.0
-
-fun List<RecordedEvent>.estimateIntervalInMicros() = take(100).map { it.startTime.toMicros() }.let {
-    it.zip(it.drop(1)).minOfOrNull { (a, b) -> b - a }
-}
-
-fun Map<RecordedThread, List<RecordedEvent>>.estimateIntervalInMicros() =
-    values.filter { it.size > 2 }.mapNotNull { it.estimateIntervalInMicros() }.average().roundToLong()
-
-val RecordedEvent.isExecutionSample
-    get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")
-
-val RecordedClass.pkg
-    get() = name.split(".").let {
-        it.subList(0, it.size - 1).joinToString(".")
-    }
-
-val RecordedClass.className
-    get() = name.split(".").last()
-
-/** different types of memory properties that can be shown in the track time line view */
-enum class MemoryProperty(val propName: String, val description: String = propName) {
-    USED_PHYSICAL_MEMORY("Used physical memory") {
-        override fun isUsable(event: RecordedEvent): Boolean {
-            return event.eventType.name == "jdk.PhysicalMemory"
-        }
-
-        override fun getValue(event: RecordedEvent): Long {
-            return event.getLong("usedSize")
-        }
-    },
-    RESERVED_HEAP("Reserved heap") {
-        override fun isUsable(event: RecordedEvent): Boolean {
-            return event.eventType.name == "jdk.GCHeapSummary"
-        }
-
-        override fun getValue(event: RecordedEvent): Long {
-            return event.getValue<RecordedObject?>("heapSpace").getLong("reservedSize")
-        }
-    },
-    COMMITTED_HEAP("Committed heap") {
-        override fun isUsable(event: RecordedEvent): Boolean {
-            return event.eventType.name == "jdk.GCHeapSummary"
-        }
-
-        override fun getValue(event: RecordedEvent): Long {
-            return event.getValue<RecordedObject?>("heapSpace").getLong("committedSize")
-        }
-    },
-    USED_HEAP("Used heap") {
-        override fun isUsable(event: RecordedEvent): Boolean {
-            return event.eventType.name == "jdk.GCHeapSummary"
-        }
-
-        override fun getValue(event: RecordedEvent): Long {
-            return event.getLong("heapUsed")
-        }
-    };
-
-    abstract fun isUsable(event: RecordedEvent): Boolean
-    abstract fun getValue(event: RecordedEvent): Long
-
-    /** returns [(time in millis, memory in bytes)] */
-    fun getValues(events: List<RecordedEvent>): List<Pair<Milliseconds, Long>> {
-        return events.filter { isUsable(it) }.map {
-            it.startTime.toMillis() to getValue(it)
-        }
-    }
-}
-
-@CommandLine.Command
-class ConfigMixin {
-    @Option(names = ["-n", "--non-project"], description = ["non project package prefixes"])
-    var nonProjectPackagePrefixes: List<String> =
-        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.")
-
-    @Option(names = ["--max-exec-samples"], description = ["Maximum number of exec samples per thread"])
-    var maxExecutionSamplesPerThread: Int = -1
-
-    @Option(names = ["--max-misc-samples"], description = ["Maximum number of misc samples per thread"])
-    var maxMiscSamplesPerThread: Int = -1
-
-    @Option(names = ["--source"], description = ["SOURCE|SOURCE_URL"])
-    var source: String = ""
-
-    fun toConfig() = Config(
-        nonProjectPackagePrefixes = nonProjectPackagePrefixes,
-        maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
-        maxMiscSamplesPerThread = maxMiscSamplesPerThread,
-        sourcePath = if (source.isNotEmpty()) Path.of(source.split("|")[0]) else null,
-        sourceUrl = if (source.isNotEmpty()) source.split("|")[1] else null
-    )
-
-    companion object {
-        fun parseConfig(args: Array<String>): Config {
-            val main = Main()
-            CommandLine(main).parseArgs(*args)
-            return main.config.toConfig()
-        }
-
-        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().toTypedArray())
-    }
-}
-
-data class Config(
-    val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_HEAP),
-    /** time range of a given sample is at max 2.0 * interval */
-    val maxIntervalFactor: Double = 2.0,
-    val useNonProjectCategory: Boolean = true,
-    val nonProjectPackagePrefixes: List<String> =
-        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring."),
-    val isNonProjectType: (RecordedClass) -> Boolean = { k ->
-        nonProjectPackagePrefixes.any { k.name.startsWith(it) }
-    },
-    val enableMarkers: Boolean = true,
-    /** an objectsample weigth will be associated with the nearest stack trace
-     * or the common prefix stack trace of the two nearest if the minimal time distance is > 0.25 * interval */
-    val enableAllocations: Boolean = true,
-    /** use native allocations view to show per allocated class allocations */
-    val useNativeAllocViewForAllocations: Boolean = true,
-    /** maximum number of stack frames */
-    val maxStackTraceFrames: Int = Int.MAX_VALUE,
-    val maxThreads: Int = Int.MAX_VALUE,
-    val omitEventThreadProperty: Boolean = true,
-    val maxExecutionSamplesPerThread: Int = -1,
-    val maxMiscSamplesPerThread: Int = -1,
-    val initialVisibleThreads: Int = 10,
-    val selectProcessTrackInitially: Boolean = true,
-    val initialSelectedThreads: Int = 10,
-    val sourcePath: Path? = null,
-    val sourceUrl: String? = null
-) {
-
-    fun isRelevantForJava(func: RecordedMethod) = false
-
-    fun toUrl(func: RecordedMethod): String {
-        return func.type.name + "#" + func.name + func.descriptor
-    }
-}
-
-enum class CategoryE(
-    val displayName: String,
-    val color: String,
-    val subcategories: MutableList<String> = mutableListOf()
-) {
-    OTHER("Other", "grey", mutableListOf("Profiling", "Waiting")), JAVA(
-        "Java",
-        "blue",
-        mutableListOf("Other", "Interpreted", "Compiled", "Native", "Inlined")
-    ),
-    NON_PROJECT_JAVA(
-        "Java (non-project)",
-        "darkgray",
-        mutableListOf("Other", "Interpreted", "Compiled", "Native", "Inlined")
-    ),
-    GC("GC", "orange", mutableListOf("Other")), CPP("Native", "red", mutableListOf("Other")),
-
-    // JFR related categories
-    JFR("Flight Recorder", "lightgrey"), JAVA_APPLICATION(
-        "Java Application",
-        "red"
-    ),
-    JAVA_APPLICATION_STATS(
-        "Java Application, Statistics",
-        "grey"
-    ),
-    JVM_CLASSLOADING("Java Virtual Machine, Class Loading", "brown"), JVM_CODE_CACHE(
-        "Java Virtual Machine, Code Cache",
-        "lightbrown"
-    ),
-    JVM_COMPILATION_OPT(
-        "Java Virtual Machine, Compiler, Optimization",
-        "lightblue"
-    ),
-    JVM_COMPILATION("Java Virtual Machine, Compiler", "lightblue"), JVM_DIAGNOSTICS(
-        "Java Virtual Machine, Diagnostics",
-        "lightgrey"
-    ),
-    JVM_FLAG("Java Virtual Machine, Flag", "lightgrey"), JVM_GC_COLLECTOR(
-        "Java Virtual Machine, GC, Collector",
-        "orange"
-    ),
-    JVM_GC_CONF(
-        "Java Virtual Machine, GC, Configuration",
-        "lightgrey"
-    ),
-    JVM_GC_DETAILED("Java Virtual Machine, GC, Detailed", "lightorange"), JVM_GC_HEAP(
-        "Java Virtual Machine, GC, Heap",
-        "lightorange"
-    ),
-    JVM_GC_METASPACE("Java Virtual Machine, GC, Metaspace", "lightorange"), // add another category for errors (OOM)
-    JVM_GC_PHASES(
-        "Java Virtual Machine, GC, Phases",
-        "lightorange"
-    ),
-    JVM_GC_REFERENCE(
-        "Java Virtual Machine, GC, Reference",
-        "lightorange"
-    ),
-    JVM_INTERNAL("Java Virtual Machine, Internal", "lightgrey"), JVM_PROFILING(
-        "Java Virtual Machine, Profiling",
-        "lightgrey"
-    ),
-    JVM_RUNTIME_MODULES(
-        "Java Virtual Machine, Runtime, Modules",
-        "lightgrey"
-    ),
-    JVM_RUNTIME_SAFEPOINT(
-        "Java Virtual Machine, Runtime, Safepoint",
-        "yellow"
-    ),
-    JVM_RUNTIME_TABLES(
-        "Java Virtual Machine, Runtime, Tables",
-        "lightgrey"
-    ),
-    JVM_RUNTIME("Java Virtual Machine, Runtime", "green"), JVM(
-        "Java Virtual Machine",
-        "lightgrey"
-    ),
-    OS_MEMORY("Operating System, Memory", "lightgrey"), OS_NETWORK(
-        "Operating System, Network",
-        "lightgrey"
-    ),
-    OS_PROCESS("Operating System, Processor", "lightgrey"), OS("Operating System", "lightgrey"),
-    MISC("Misc", "lightgrey", mutableListOf("Other"));
-
-    val index: Int = ordinal
-
-    fun sub(sub: String) = subcategories.indexOf(sub).let {
-        index to if (it == -1) {
-            subcategories.add(sub)
-            subcategories.size - 1
-        } else it
-    }
-
-    fun toCategory() = Category(displayName, color, subcategories)
-
-    companion object {
-        fun toCategoryList() = values().map { it.toCategory() }
-
-        internal val map by lazy {
-            values().associateBy { it.displayName }
-        }
-
-        fun fromName(displayName: String) = map[displayName] ?: OTHER
-
-        val MISC_OTHER = MISC.sub("Other")
-    }
-}
 
 /** generates JSON for the profile.firefox.com viewer */
 class FirefoxProfileGenerator(
@@ -489,7 +233,6 @@ class FirefoxProfileGenerator(
                     prop.getValues(this.events).let { timed ->
                         CounterSamplesTable(
                             time = timed.map { (t, _) -> t },
-                            number = timed.map { -1 },
                             count = timed.mapIndexed { i, (_, value) ->
                                 if (i == 0) {
                                     value
@@ -517,7 +260,6 @@ class FirefoxProfileGenerator(
                         0,
                         CounterSamplesTable(
                             time = cpuLoads.map { it.startTime.toMillis() },
-                            number = List(cpuLoads.size) { 0 },
                             count = cpuLoads.map {
                                 ((it.getFloat("jvmUser") + it.getFloat("jvmSystem")) * 1_000_000.0)
                                     .roundToLong()
@@ -546,7 +288,6 @@ class FirefoxProfileGenerator(
                         0,
                         CounterSamplesTable(
                             time = slices,
-                            number = List(slices.size) { 0 },
                             count = List(slices.size) { 10 }
                         )
                     )
@@ -569,23 +310,6 @@ class FirefoxProfileGenerator(
             startTimeMicros = curStart
             EventWithTimeRange(event, curStart / 1000.0, diff / 1000.0)
         }
-    }
-
-    class StringTableWrapper {
-        val map = mutableMapOf<String, IndexIntoStringTable>()
-        val strings = mutableListOf<String>()
-
-        fun getString(string: String): IndexIntoStringTable {
-            return map.getOrPut(string) {
-                strings.add(string)
-                map.size
-            }
-        }
-
-        fun toStringTable(): StringTable = strings
-
-        val size: Int
-            get() = strings.size
     }
 
     class ResourceTableWrapper {
@@ -624,71 +348,18 @@ class FirefoxProfileGenerator(
         val funcTable: FuncTableWrapper = FuncTableWrapper(),
         val classToUrl: (String, String) -> String?
     ) {
-        fun getString(string: String) = stringTable.getString(string)
-    }
-
-    /** Helps to format types and other byte code related things */
-    object ByteCodeHelper {
-        fun formatFunctionWithClass(func: RecordedMethod) =
-            "${func.type.className}.${func.name}${formatDescriptor(func.descriptor)}"
-
-        fun formatDescriptor(descriptor: String): String {
-            val args = "(${Type.getArgumentTypes(descriptor).joinToString(", ") {
-                formatByteCodeType(it, omitPackages = true)
-            }})"
-            if (Type.getReturnType(descriptor) == Type.VOID_TYPE) {
-                return args
-            }
-            return args + ": " + formatByteCodeType(Type.getReturnType(descriptor), omitPackages = true)
-        }
-
-        fun shortenClassName(className: String): String {
-            val lastDot = className.lastIndexOf('.')
-            return if (lastDot == -1) {
-                className
-            } else {
-                className.substring(lastDot + 1)
-            }
-        }
-
-        fun formatByteCodeType(type: String, omitPackages: Boolean) =
-            formatByteCodeType(Type.getType(type), omitPackages)
-
-        fun formatByteCodeType(type: Type, omitPackages: Boolean): String = when (type.sort) {
-            Type.VOID -> "void"
-            Type.BOOLEAN -> "boolean"
-            Type.CHAR -> "char"
-            Type.BYTE -> "byte"
-            Type.SHORT -> "short"
-            Type.INT -> "int"
-            Type.FLOAT -> "float"
-            Type.LONG -> "long"
-            Type.DOUBLE -> "double"
-            Type.ARRAY -> formatByteCodeType(type.elementType, omitPackages) + "[]".repeat(type.dimensions)
-            Type.OBJECT -> if (omitPackages) shortenClassName(type.className) else type.className
-            else -> throw IllegalArgumentException("Unknown type sort: ${type.sort}")
-        }
-
-        fun formatRecordedClass(klass: RecordedClass): String {
-            val name = klass.getString("name")
-            val byteCodeName = if (name.startsWith("[")) {
-                name
-            } else {
-                "L$name;"
-            }
-            return formatByteCodeType(byteCodeName, omitPackages = false)
-        }
+        fun getString(string: String) = stringTable[string]
     }
 
     class FuncTableWrapper {
 
-        val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
-        val names = mutableListOf<IndexIntoStringTable>()
+        private val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
+        private val names = mutableListOf<IndexIntoStringTable>()
         private val isJss = mutableListOf<Boolean>()
         private val relevantForJss = mutableListOf<Boolean>()
         private val resourcess = mutableListOf<IndexIntoResourceTable>() // -1 if not present
-        val fileNames = mutableListOf<IndexIntoStringTable?>()
-        val sourceUrls = mutableListOf<IndexIntoStringTable?>()
+        private val fileNames = mutableListOf<IndexIntoStringTable?>()
+        private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
         private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
         fun getFunction(tables: Tables, func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
@@ -732,11 +403,11 @@ class FirefoxProfileGenerator(
 
     class FrameTableWrapper {
 
-        val map = mutableMapOf<Pair<IndexIntoFuncTable, Int?>, IndexIntoFrameTable>()
-        val categories = mutableListOf<IndexIntoCategoryList?>()
-        val subcategories = mutableListOf<IndexIntoSubcategoryListForCategory?>()
-        val funcs = mutableListOf<IndexIntoFuncTable>()
-        val lines = mutableListOf<Int?>()
+        private val map = mutableMapOf<Pair<IndexIntoFuncTable, Int?>, IndexIntoFrameTable>()
+        internal val categories = mutableListOf<IndexIntoCategoryList?>()
+        internal val subcategories = mutableListOf<IndexIntoSubcategoryListForCategory?>()
+        private val funcs = mutableListOf<IndexIntoFuncTable>()
+        private val lines = mutableListOf<Int?>()
         private val miscFrames = mutableMapOf<String, IndexIntoStringTable>()
 
         fun getFrame(
@@ -787,44 +458,6 @@ class FirefoxProfileGenerator(
 
         val size: Int
             get() = funcs.size
-    }
-
-    class HashedList<T>(val array: List<T>, val start: Int = 0, val end: Int = array.size) {
-        override fun hashCode(): Int {
-            var hash = 0
-            for (i in start until end) {
-                hash = hash * 31 + array[i].hashCode()
-            }
-            return hash
-        }
-
-        override fun equals(other: Any?): Boolean {
-            if (other !is HashedList<*>) {
-                return false
-            }
-            if ((other.end - other.start) != (end - start)) {
-                return false
-            }
-            for (i in 0 until (end - start)) {
-                if (array[i + start] != other.array[i + other.start]) {
-                    return false
-                }
-            }
-            return true
-        }
-
-        val size: Int
-            get() = end - start
-
-        val first: T
-            get() = array[start]
-
-        val last: T
-            get() = array[end - 1]
-
-        operator fun get(index: Int): T {
-            return array[start + index]
-        }
     }
 
     class StackTableWrapper {
@@ -1540,34 +1173,34 @@ class FirefoxProfileGenerator(
                 val trackConfig = when (name) {
                     "jdk.CPULoad" -> MarkerTrackConfig(
                         label = "CPU Load",
-                        height = "large",
+                        height = MarkerTrackConfigLineHeight.LARGE,
                         lines = listOf(
                             MarkerTrackLineConfig(
                                 key = "jvmSystem",
                                 strokeColor = "orange",
-                                type = "line"
+                                type = MarkerTrackConfigLineType.LINE
                             ),
                             MarkerTrackLineConfig(
                                 key = "jvmUser",
                                 strokeColor = "blue",
-                                type = "line"
+                                type = MarkerTrackConfigLineType.LINE
                             )
                         ),
                         isPreSelected = true
                     )
                     "jdk.NetworkUtilization" -> MarkerTrackConfig(
                         label = "Network Utilization",
-                        height = "large",
+                        height = MarkerTrackConfigLineHeight.LARGE,
                         lines = listOf(
                             MarkerTrackLineConfig(
                                 key = "readRate",
                                 strokeColor = "blue",
-                                type = "line"
+                                type = MarkerTrackConfigLineType.LINE
                             ),
                             MarkerTrackLineConfig(
                                 key = "writeRate",
                                 strokeColor = "orange",
-                                type = "line"
+                                type = MarkerTrackConfigLineType.LINE
                             )
                         )
                     )
@@ -1660,7 +1293,7 @@ class FirefoxProfileGenerator(
             funcTable = tables.funcTable.toFuncTable(),
             stringArray = tables.stringTable.toStringTable(),
             resourceTable = tables.resourceTable.toResourceTable(),
-            nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf()),
+            nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf(), listOf()),
             sampleLikeMarkersConfig = generateSampleLikeMarkersConfig(
                 sortedEventsPerType
             )
@@ -1716,21 +1349,6 @@ class FirefoxProfileGenerator(
         )
     }
 
-    private fun isGCThread(thread: RecordedThread) = thread.osName.startsWith("GC Thread") && thread.javaName == null
-
-    private fun isSystemThread(thread: RecordedThread): Boolean {
-        return thread.javaName in listOf(
-            "JFR Periodic Tasks",
-            "JFR Shutdown Hook",
-            "Permissionless thread",
-            "Thread Monitor CTRL-C"
-        ) || thread.threadGroup?.name == "system" || thread.osName.startsWith("GC Thread") ||
-            thread.javaName.startsWith("JFR ") ||
-            thread.javaName == "Monitor Ctrl-Break" || "CompilerThread" in thread.javaName ||
-            thread.javaName.startsWith("GC Thread") || thread.javaName == "Notification Thread" ||
-            thread.javaName == "Finalizer" || thread.javaName == "Attach Listener"
-    }
-
     private fun generateThreads(markerSchema: MarkerSchemaWrapper): Pair<List<Thread>, Set<Thread>> {
         val inThreadEvents = mutableListOf<RecordedEvent>()
         val outThreadEvents = mutableListOf<RecordedEvent>()
@@ -1762,8 +1380,9 @@ class FirefoxProfileGenerator(
                     eventss,
                     listOf()
                 )
-                if (isSystemThread(eventss.first().sampledThread)) {
+                if (eventss.first().sampledThread.isSystemThread()) {
                     systemThreads.add(t)
+                    println("System thread: ${t.name}")
                 }
                 t
             }
@@ -1833,7 +1452,7 @@ class FirefoxProfileGenerator(
             ),
             initialVisibleThreads = initialVisibleThreads,
             initialSelectedThreads = initialSelectedThreads,
-            disableThreadOrdering = true
+            keepProfileThreadOrder = true
         )
     }
 
@@ -1873,69 +1492,5 @@ class FirefoxProfileGenerator(
 
     companion object {
         private val LOG = Logger.getLogger("Converter")
-    }
-}
-
-// source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
-fun Collection<*>.toJsonElement(): JsonElement = JsonArray(mapNotNull { it.toJsonElement() })
-
-fun Map<*, *>.toJsonElement(): JsonElement = JsonObject(
-    mapNotNull {
-        (it.key as? String ?: return@mapNotNull null) to it.value.toJsonElement()
-    }.toMap()
-)
-
-fun Any?.toJsonElement(): JsonElement = when (this) {
-    null -> JsonNull
-    is Map<*, *> -> toJsonElement()
-    is Collection<*> -> toJsonElement()
-    is Number -> JsonPrimitive(this)
-    is Boolean -> JsonPrimitive(this)
-    else -> JsonPrimitive(toString())
-}
-
-@OptIn(ExperimentalSerializationApi::class)
-private val jsonFormat = Json {
-    prettyPrint = false
-    encodeDefaults = true
-    explicitNulls = false
-}
-
-fun Profile.generateJSON(): String {
-    return jsonFormat.encodeToString(this)
-}
-
-@OptIn(ExperimentalSerializationApi::class)
-fun Profile.encodeToJSONStream(output: OutputStream) {
-    jsonFormat.encodeToStream(this, output)
-}
-
-fun Profile.encodeToZippedStream(output: OutputStream) {
-    GZIPOutputStream(output).use { zipped ->
-        encodeToJSONStream(zipped)
-    }
-}
-
-fun Profile.encodeToJSONStream(): InputStream {
-    val input = PipedInputStream()
-    val out = PipedOutputStream(input)
-    Runnable { encodeToJSONStream(out) }.run()
-    return input
-}
-
-fun Profile.encodeToZippedStream(): InputStream {
-    val input = PipedInputStream()
-    val out = PipedOutputStream(input)
-    Runnable { encodeToZippedStream(out) }.run()
-    return input
-}
-
-fun Profile.store(path: Path) {
-    Files.newOutputStream(path).use { stream ->
-        when (path.extension) {
-            "json" -> encodeToJSONStream(stream)
-            "gz" -> encodeToZippedStream(stream)
-            else -> throw IllegalArgumentException("Unknown file extension: ${path.extension}")
-        }
     }
 }

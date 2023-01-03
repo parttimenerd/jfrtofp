@@ -306,15 +306,29 @@ object SamplesLikeTableSerializer : JsonContentPolymorphicSerializer<SamplesLike
  */
 @Serializable
 data class RawMarkerTable(
-    val data: List<Map<String, JsonElement>>,
+    val data: List<Map<String, JsonElement>?>,
     val name: List<IndexIntoStringTable>,
     val startTime: List<Milliseconds?>,
     val endTime: List<Milliseconds?>,
     val phase: List<MarkerPhase>,
     val category: List<IndexIntoCategoryList>,
-    // This property isn't present in normal threads. However it's present for
+    // This property isn't present in normal threads. However, it's present for
     // merged threads, so that we know the origin thread for these markers.
     val threadId: List<Tid>? = null,
+    // This is the optional information on the url of the source file
+    // that this function can be seen in specifically.
+    // Prefixing the URL with `post|` signifies that the URL should
+    // be called with a POST request and the response discarded (the request
+    // includes `name`, `file`, `line` and `column` information if present).
+    // `post|` URLs can have another format: `post|url|alternative` where
+    // the alternative URL is used if the origin of the url does not have
+    // the same origin as the profile viewer. This allows to supply a public
+    // fallback URL for local profile URLs.
+    // These POST requests are used by imported profiles to trigger events
+    // outside of the profiler.
+    // Urls may currently only start with `https://raw.githubusercontent.com/` or
+    // `http://localhost`.
+    val sourceUrl: Array<IndexIntoStringTable?>? = null,
     @Required
     val length: Int = data.size
 )
@@ -455,9 +469,14 @@ data class FuncTable(
     // Prefixing the URL with `post|` signifies that the URL should
     // be called with a POST request and the response discarded (the request
     // includes `name`, `file`, `line` and `column` information if present).
-    // The response of the request (and any error) is ignored.
+    // `post|` URLs can have another format: `post|url|alternative` where
+    // the alternative URL is used if the origin of the url does not have
+    // the same origin as the profile viewer. This allows to supply a public
+    // fallback URL for local profile URLs.
     // These POST requests are used by imported profiles to trigger events
     // outside of the profiler.
+    // Urls may currently only start with `https://raw.githubusercontent.com/` or
+    // `http://localhost`.
     @Experimental
     val sourceUrl: List<IndexIntoStringTable?>? = null,
 )
@@ -481,9 +500,8 @@ data class NativeSymbolTable(
     // The symbol name, demangled.
     val name: List<IndexIntoStringTable>,
 
-    // This would be a good spot for a "size" field. But the symbolication API does
-    // not give us information about the size of a function.
-    // https://github.com/mstange/profiler-get-symbols/issues/17
+    // The size of the function's machine code (if known), in bytes.
+    val functionSize: List<Bytes?>,
 
     @Required
     var length: Int = name.size
@@ -617,7 +635,8 @@ data class JsTracerTable(
 data class CounterSamplesTable(
     val time: List<Milliseconds>,
     // The number of times the Counter's "number" was changed since the previous sample.
-    val number: List<Int>,
+    // This property was mandatory until the format version 42, it was made optional in 43.
+    val number: List<Int>? = null,
     /* The count of the data, for instance for memory this would be bytes.
        real count[i] = sum(count[0], ..., count[i])*/
     val count: List<Long>,
@@ -710,12 +729,21 @@ data class SampleLikeMarkerConfigEntry(
 @Experimental
 @Serializable
 data class SampleLikeMarkerConfig(
-    val marker: String,
+    // Name of the strategy, used as a unique identifier
+    // and in the URL state. Configs with the same name are
+    // considered to be the same.
+    val name: String,
+    // label of the strategy
     val label: String,
-    val key: String,
+    // marker type
+    val marker: String,
+    // defaults to samples
     val weightType: WeightType? = null,
+    // field to obtain the weight from if present,
+    // else 1 is used as the weight for every marker
     val weightField: String? = null,
-    val stackTraceField: String? = null
+    // field where the stack is stored, defaults to the cause field
+    val stackField: String? = null
 )
 
 /**
@@ -744,10 +772,10 @@ data class Thread(
     @Required
     val processType: String = "default",
     val processStartupTime: Milliseconds,
-    val processShutdownTime: Milliseconds?,
+    val processShutdownTime: Milliseconds? = null,
     val registerTime: Milliseconds,
-    val unregisterTime: Milliseconds?,
-    val pausedRanges: List<PausedRange>,
+    val unregisterTime: Milliseconds? = null,
+    val pausedRanges: List<PausedRange> = listOf(),
     /** name it GeckMain and it gets to be the process */
     val name: String,
     /*
@@ -936,6 +964,9 @@ data class ProfileMeta(
     val physicalCPUs: Int? = null,
     // The amount of logically available CPU cores for the program.
     val logicalCPUs: Int? = null,
+    // The name of the CPU (typically a string of up to 48 characters).
+    @SerialName("CPUName")
+    val cpuName: String? = null,
     // A boolean flag indicating whether we symbolicated this profile. If this is
     // false we'll start a symbolication process when the profile is loaded.
     // A missing property means that it's an older profile, it stands for an
@@ -994,12 +1025,16 @@ data class ProfileMeta(
     // Extra information about the profile, not shown in the "Profile Info" panel,
     // but in the more info panel
     val extra: List<ExtraProfileInfoSection>? = null,
-    @Experimental
+    // Indexes of the threads that are initially visible in the UI.
+    // This is useful for imported profiles for which the internal visibility score
+    // ranking does not make sense.
     val initialVisibleThreads: List<ThreadIndex>? = null,
-    @Experimental
+    // Indexes of the threads that are initially selected in the UI.
+    // This is also most useful for imported profiles where just using the first thread
+    // of each process might not make sense.
     val initialSelectedThreads: List<ThreadIndex>? = null,
-    @Experimental
-    val disableThreadOrdering: Boolean? = false
+    // Keep the defined thread order
+    val keepProfileThreadOrder: Boolean? = null
 )
 
 @Serializable

@@ -5,7 +5,7 @@ import jdk.jfr.consumer.RecordedThread
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import me.bechberger.jfrtofp.sampledThread
+import me.bechberger.jfrtofp.util.sampledThread
 import java.nio.file.Path
 import java.util.IdentityHashMap
 

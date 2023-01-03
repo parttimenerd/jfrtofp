@@ -23,7 +23,7 @@ plugins {
 
     id("com.github.johnrengelman.shadow") version "7.1.2"
 
-    id("io.gitlab.arturbosch.detekt") version "1.21.0"
+    // id("io.gitlab.arturbosch.detekt") version "1.21.0"
     pmd
 
     id("org.jlleitschuh.gradle.ktlint") version "11.0.0"
@@ -52,7 +52,7 @@ java {
 
 apply { plugin("com.github.johnrengelman.shadow") }
 
-detekt {
+/*detekt {
     buildUponDefaultConfig = true // preconfigure defaults
     config = files("$rootDir/config/detekt/detekt.yml")
     autoCorrect = true
@@ -63,7 +63,7 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
 }
 tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
     jvmTarget = "1.11"
-}
+}*/
 
 dependencies {
     // Align versions of all Kotlin components

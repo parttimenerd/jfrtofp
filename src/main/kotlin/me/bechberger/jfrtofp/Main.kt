@@ -2,6 +2,8 @@ package me.bechberger.jfrtofp
 
 import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
 import me.bechberger.jfrtofp.other.SpeedscopeGenerator
+import me.bechberger.jfrtofp.processor.ConfigMixin
+import me.bechberger.jfrtofp.util.store
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Mixin
@@ -66,7 +68,9 @@ class Main : Callable<Int> {
             return 1
         }
         val outputFile = output ?: Path.of(file.toString().replace(".jfr", ".json.gz"))
+        val time = System.currentTimeMillis()
         FirefoxProfileGenerator(file, config = config.toConfig()).generate().store(outputFile)
+        System.err.println("Took ${System.currentTimeMillis() - time} ms")
         return 0
     }
 }

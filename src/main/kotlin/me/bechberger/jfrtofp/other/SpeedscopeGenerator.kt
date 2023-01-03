@@ -4,7 +4,7 @@ import jdk.jfr.consumer.RecordedMethod
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import me.bechberger.jfrtofp.estimateIntervalInMicros
+import me.bechberger.jfrtofp.util.estimateIntervalInMicros
 import java.nio.file.Path
 import kotlin.math.max
 

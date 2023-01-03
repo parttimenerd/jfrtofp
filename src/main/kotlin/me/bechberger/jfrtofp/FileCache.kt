@@ -1,5 +1,8 @@
 package me.bechberger.jfrtofp
 
+import me.bechberger.jfrtofp.processor.Config
+import me.bechberger.jfrtofp.util.encodeToJSONStream
+import me.bechberger.jfrtofp.util.encodeToZippedStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path

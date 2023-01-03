@@ -7,9 +7,9 @@ import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedThread
 import jdk.jfr.consumer.RecordingFile
 import kotlinx.serialization.json.Json
-import me.bechberger.jfrtofp.sampledThread
-import me.bechberger.jfrtofp.sampledThreadOrNull
-import me.bechberger.jfrtofp.toMicros
+import me.bechberger.jfrtofp.util.sampledThread
+import me.bechberger.jfrtofp.util.sampledThreadOrNull
+import me.bechberger.jfrtofp.util.toMicros
 import java.nio.file.Path
 import java.util.Objects
 
