@@ -284,6 +284,12 @@ enum class MarkerType(
 
         fun fromName(field: ValueDescriptor): MarkerType {
             return map2.computeIfAbsent(Triple(field.typeName, field.name, field.contentType)) {
+                if (field.label.lowercase().endsWith(" pointer")) {
+                    return@computeIfAbsent ADDRESS
+                }
+                if (field.name.endsWith("Size")) {
+                    return@computeIfAbsent BYTES
+                }
                 val contentTypeResult = field.contentType?.let {
                     map[field.contentType.lowercase().split(".").last()]
                 }

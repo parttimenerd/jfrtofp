@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import java.nio.file.Path
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -12,6 +11,7 @@ import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.util.toMillis
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
+import java.nio.file.Path
 
 /** different types of memory properties that can be shown in the track time line view */
 enum class MemoryProperty(val propName: String, val description: String = propName) {
@@ -142,7 +142,10 @@ data class Config(
         "jdk.NativeLibrary",
         "jdk.StringFlag",
         "jdk.UnsignedIntFlag",
-        "jdk.UnsignedLongFlag"
+        "jdk.UnsignedLongFlag",
+        "jdk.InitialSystemProperty",
+        "jdk.InitialEnvironmentVariable",
+        "jdk.SystemProcess",
     ),
 ) {
 

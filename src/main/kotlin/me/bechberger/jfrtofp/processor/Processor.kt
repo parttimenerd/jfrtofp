@@ -1,14 +1,6 @@
 package me.bechberger.jfrtofp.processor
 
 import MarkerSchemaProcessor
-import java.io.OutputStream
-import java.nio.file.Path
-import java.time.Instant
-import java.util.NavigableMap
-import java.util.TreeMap
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.stream.LongStream
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
@@ -44,6 +36,14 @@ import me.bechberger.jfrtofp.util.sampledThread
 import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
+import java.io.OutputStream
+import java.nio.file.Path
+import java.time.Instant
+import java.util.NavigableMap
+import java.util.TreeMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.stream.LongStream
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
@@ -346,9 +346,9 @@ data class BasicInformation(
             val systemProcesses: MutableList<RecordedEvent> = mutableListOf()
             RecordingFile(jfrFile).use { file ->
                 while (file.hasMoreEvents() && (
-                        mainThreadId == null || cpuInformation == null || jvmInformation == null || osInformation == null ||
-                            executionEvents.size < maxRecordedEventsConsideredForIntervalEstimation
-                        )
+                    mainThreadId == null || cpuInformation == null || jvmInformation == null || osInformation == null ||
+                        executionEvents.size < maxRecordedEventsConsideredForIntervalEstimation
+                    )
                 ) {
                     val event = file.readEvent()
                     if (event.thread != null && event.thread.javaName == "main") {
@@ -709,9 +709,9 @@ internal class MetaProcessor(
             markerSchema = markerSchema.toMarkerSchemaList(),
             arguments = basicInformation.jvmInformation?.let {
                 "jvm=${it.getString("jvmArguments")}  --  java=${
-                    it.getString(
-                        "javaArguments"
-                    )
+                it.getString(
+                    "javaArguments"
+                )
                 }"
             } ?: "<unknown>",
             physicalCPUs = basicInformation.cpuInformation?.getInt("cores"),
