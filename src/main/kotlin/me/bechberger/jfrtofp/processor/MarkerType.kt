@@ -115,7 +115,12 @@ enum class MarkerType(
     TIMESTAMP(
         BasicMarkerFormatType.INTEGER,
         { tables, event, field ->
-            event.getLong(field) - tables.basicInformation.startTimeMillis
+            val startTimeMillis = tables.basicInformation.startTimeMillis
+            var fieldValue = event.getLong(field) * 1.0
+            while (fieldValue > startTimeMillis * 100) { // get it in the same ball park, works with timestamps but not with time spans
+                fieldValue /= 1000
+            }
+            fieldValue - tables.basicInformation.startTimeMillis
         }
     ),
     TIMESPAN(
@@ -331,11 +336,16 @@ enum class MarkerType(
                             .filter { it.second != null }
                             .forEach { (field, value) -> addField(path + fieldName(field), field, fieldValue) }
                     } else {
+                        var type = fromName(
+                            field
+                        )
+                        if (type == TABLE) {
+                            // prevent infinite recursion
+                            type = STRING
+                        }
                         fields.add(
                             path to (
-                                fromName(
-                                    field
-                                ).converter(tables, base, field.name)
+                                type.converter(tables, base, field.name)
                                 ).toString()
                         )
                     }

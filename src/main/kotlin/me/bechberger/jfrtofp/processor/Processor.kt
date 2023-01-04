@@ -44,6 +44,9 @@ import java.util.TreeMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.LongStream
+import me.bechberger.jfrtofp.types.PauseReason
+import me.bechberger.jfrtofp.types.PausedRange
+import me.bechberger.jfrtofp.util.estimateIntervalInMillis
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
@@ -129,6 +132,7 @@ class ThreadProcessor(
     private var threadStartEvent: RecordedEvent? = null
     private var threadEndEvent: RecordedEvent? = null
     private var thread: RecordedThread? = null
+    private var pausedRanges: MutableList<PausedRange> = mutableListOf()
 
     private fun processExecutionSample(event: RecordedEvent) {
         samplesTable.processEvent(event)
@@ -185,6 +189,7 @@ class ThreadProcessor(
                 "jdk.ThreadCPULoad" -> processThreadCPULoad(event)
                 "jdk.ThreadStart" -> threadStartEvent = event
                 "jdk.ThreadEnd" -> threadEndEvent = event
+                "jdk.ThreadPark" -> pausedRanges.add(PausedRange(event.startTime.toMillis(), event.endTime.toMillis(), PauseReason.PARKED))
             }
         }
     }
@@ -196,7 +201,7 @@ class ThreadProcessor(
             processShutdownTime = end.toMillis(),
             registerTime = threadStartEvent?.startTime?.toMillis() ?: start.toMillis(),
             unregisterTime = threadEndEvent?.startTime?.toMillis() ?: end.toMillis(),
-            pausedRanges = emptyList(),
+            pausedRanges = pausedRanges.sortedBy { it.startTime!! },
             // the global process track has to have type "tab" and name "GeckoMain"
             name = if (isParentProcessThread) "GeckoMain" else thread?.let { it.javaName ?: it.osName } ?: "<unknown>",
             processName = "Parent Process",
@@ -340,14 +345,15 @@ data class BasicInformation(
             var jvmInformation: RecordedEvent? = null
             var cpuInformation: RecordedEvent? = null
             var osInformation: RecordedEvent? = null
-            val executionEvents: MutableList<RecordedEvent> = mutableListOf()
+            val sampledStartTimesPerThread: MutableMap<Long, MutableList<Milliseconds>> = mutableMapOf()
+            var sampledStartTimesCount = 0
             val initialSystemProperties: MutableMap<String, String> = mutableMapOf()
             val initialEnvironmentVariables: MutableMap<String, String> = mutableMapOf()
             val systemProcesses: MutableList<RecordedEvent> = mutableListOf()
             RecordingFile(jfrFile).use { file ->
                 while (file.hasMoreEvents() && (
                     mainThreadId == null || cpuInformation == null || jvmInformation == null || osInformation == null ||
-                        executionEvents.size < maxRecordedEventsConsideredForIntervalEstimation
+                        sampledStartTimesCount < maxRecordedEventsConsideredForIntervalEstimation
                     )
                 ) {
                     val event = file.readEvent()
@@ -366,8 +372,10 @@ data class BasicInformation(
                             backupMainThreadId = event.sampledThread.id
                             backupStartTime = event.startTime
                         }
-                        if (executionEvents.size < maxRecordedEventsConsideredForIntervalEstimation) {
-                            executionEvents.add(event)
+                        val sampleStartTimes = sampledStartTimesPerThread.getOrPut(event.sampledThread.id) { mutableListOf() }
+                        if (sampledStartTimesCount < maxRecordedEventsConsideredForIntervalEstimation) {
+                            sampleStartTimes.add(event.startTime.toMillis())
+                            sampledStartTimesCount++
                         } else if (eventCount > maxEventsConsidered) { // we break only if we have enough events
                             // so we don't miss the main thread or the JVMInformation event
                             break
@@ -389,14 +397,10 @@ data class BasicInformation(
             if (mainThreadId == null || startTime == null) {
                 error("Could not find main thread or start time")
             }
-            val groupedExecutionEvents = executionEvents.groupBy { it.sampledThread }.filter { it.value.size > 3 }
-            if (groupedExecutionEvents.isEmpty()) {
-                error("Could not find enough execution events")
-            }
-            val estimatedIntervalInNanos = groupedExecutionEvents.estimateIntervalInMicros()
+            val estimatedIntervalInMillis = estimateIntervalInMillis(sampledStartTimesPerThread)
             val estimatedInterval = Instant.ofEpochSecond(
-                estimatedIntervalInNanos / 1_000_000_000,
-                estimatedIntervalInNanos % 1_000_000_000
+                (estimatedIntervalInMillis / 1_000).toLong(),
+                ((estimatedIntervalInMillis % 1_000) * 1_000_000).toLong()
             )
             return BasicInformation(
                 config,
@@ -563,7 +567,7 @@ internal class ProcessCounterProcessor(
     }
 
     fun generateCounters(endTime: Instant): List<Counter> {
-        return generateMemoryCounters() + generateCPUCounters(endTime)
+        return /*generateMemoryCounters() + */generateCPUCounters(endTime)
     }
 }
 

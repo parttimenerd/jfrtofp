@@ -604,7 +604,10 @@ enum class PauseReason {
 
     @SerialName("collecting")
     @Suppress("unused")
-    COLLECTING
+    COLLECTING,
+
+    @SerialName("parked")
+    PARKED
 }
 
 /**

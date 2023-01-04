@@ -22,6 +22,11 @@ fun List<RecordedEvent>.estimateIntervalInMicros() = take(100).map { it.startTim
 fun Map<RecordedThread, List<RecordedEvent>>.estimateIntervalInMicros() =
     values.filter { it.size > 2 }.mapNotNull { it.estimateIntervalInMicros() }.average().roundToLong()
 
+fun estimateIntervalInMillis(startTimesPerThread: Map<Long, List<Milliseconds>>): Milliseconds =
+    startTimesPerThread.values.filter { it.size > 2 }.map { it -> val sorted = it.sorted()
+        val diffs = sorted.zip(sorted.drop(1)).map { (a, b) -> b - a }.sorted()
+        diffs.average() }.average()
+
 val RecordedEvent.isExecutionSample
     get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")
 

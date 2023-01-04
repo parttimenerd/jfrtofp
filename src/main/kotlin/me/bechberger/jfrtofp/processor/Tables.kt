@@ -23,7 +23,7 @@ import me.bechberger.jfrtofp.types.SamplesTable
 import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import me.bechberger.jfrtofp.util.ByteCodeHelper
-import me.bechberger.jfrtofp.util.HashedList
+import me.bechberger.jfrtofp.util.HashedList2
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.StringTableWrapper
 import me.bechberger.jfrtofp.util.className
@@ -121,7 +121,7 @@ data class Tables(
     ) = stackTraceTable.getStack(stackTrace, category, maxStackTraceFrames)
 
     fun getStack(
-        stackTrace: HashedList<IndexIntoFrameTable>,
+        stackTrace: HashedFrameList,
         maxStackTraceFrames: Int = Int.MAX_VALUE
     ) = stackTraceTable.getStack(stackTrace, maxStackTraceFrames)
 
@@ -133,7 +133,11 @@ data class Tables(
     ) = stackTraceTable.getMiscStack(name, category, subcategory, isNative)
 }
 
-class RawMarkerTableWrapper(val tables: Tables, val basicInformation: BasicInformation, val markerSchema: MarkerSchemaProcessor) {
+class RawMarkerTableWrapper(
+    val tables: Tables,
+    val basicInformation: BasicInformation,
+    val markerSchema: MarkerSchemaProcessor
+) {
 
     data class Item(
         val name: IndexIntoStringTable,
@@ -164,7 +168,9 @@ class RawMarkerTableWrapper(val tables: Tables, val basicInformation: BasicInfor
         data["startTime"] = (event.startTime.toMillis() - basicInformation.startTimeMillis).toJsonElement()
         when (event.eventType.name) {
             "jdk.ObjectAllocationSample" -> {
-                data["_class"] = tables.stackTraceTable.getMiscStack(ByteCodeHelper.formatRecordedClass(event.getClass("objectClass")))
+                data["_class"] = tables.stackTraceTable.getMiscStack(
+                    ByteCodeHelper.formatRecordedClass(event.getClass("objectClass"))
+                )
                     .toJsonElement()
             }
         }
@@ -337,9 +343,32 @@ class FrameTableWrapper(val tables: Tables) {
         get() = funcs.size
 }
 
+typealias HashedFrameList = HashedList2<IndexIntoFrameTable>
+
 class StackTableWrapper(val tables: Tables) {
 
-    private val map = mutableMapOf<HashedList<IndexIntoFrameTable>, IndexIntoStackTable>()
+    class StackTraceMap {
+
+        private val mapPerLength: MutableList<MutableMap<HashedFrameList, IndexIntoStackTable>> = mutableListOf()
+
+        private fun getMapForLength(length: Int): MutableMap<HashedFrameList, IndexIntoStackTable> {
+            while (mapPerLength.size <= length) {
+                mapPerLength.add(mutableMapOf())
+            }
+            return mapPerLength[length]
+        }
+
+        fun contains(stack: HashedFrameList) = getMapForLength(stack.size).containsKey(stack)
+
+        operator fun get(stack: HashedFrameList) = getMapForLength(stack.size)[stack]
+
+        operator fun set(stack: HashedFrameList, value: IndexIntoStackTable) {
+            getMapForLength(stack.size)[stack] = value
+        }
+    }
+
+    private val map = StackTraceMap()
+
     private val frames = mutableListOf<IndexIntoFrameTable>()
     private val prefix = mutableListOf<IndexIntoFrameTable?>()
     private val categories = mutableListOf<IndexIntoCategoryList>()
@@ -351,33 +380,38 @@ class StackTableWrapper(val tables: Tables) {
         stackTrace: RecordedStackTrace,
         category: Pair<Int, Int>? = null
     ) =
-        HashedList(stackTrace.frames.reversed().map { tables.getFrame(it, category) })
+        HashedFrameList(stackTrace.frames.reversed().map { tables.getFrame(it, category) })
 
     internal fun getStack(
         stackTrace: RecordedStackTrace,
         category: Pair<Int, Int>? = null,
         maxStackTraceFrames: Int
     ): IndexIntoStackTable {
-        return getStack(getHashedFrameList(tables, stackTrace, category), maxStackTraceFrames)
+        val stack = getStack(getHashedFrameList(tables, stackTrace, category), maxStackTraceFrames)
+        return stack
     }
 
     internal fun getStack(
-        stackTrace: HashedList<IndexIntoFrameTable>,
+        stackTrace: HashedFrameList,
         maxStackTraceFrames: Int = Int.MAX_VALUE
     ): IndexIntoStackTable {
+        // we obtain the stack recursively
+
         if (maxStackTraceFrames == 0) {
+            return -1 // too many stack frames
+        }
+        if (stackTrace.size == 0) {
             return -1
         }
         // top frame is on the highest index
-        if (!map.containsKey(stackTrace)) {
-            if (stackTrace.size == 0) {
-                return -1
-            }
+
+        // this map contains all stack traces and their prefixes
+        if (!map.contains(stackTrace)) {
             val topFrame = stackTrace.last
             val (cat, sub) = tables.frameTable.getCategoryOfFrame(topFrame)
             val pref = if (stackTrace.size > 1) {
                 getStack(
-                    HashedList(stackTrace.array, stackTrace.start, stackTrace.end - 1),
+                    stackTrace.prefix(),
                     maxStackTraceFrames - 1
                 )
             } else {
