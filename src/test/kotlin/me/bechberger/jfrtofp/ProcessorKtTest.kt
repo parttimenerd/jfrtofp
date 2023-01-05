@@ -2,6 +2,7 @@ package me.bechberger.jfrtofp
 
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
+import me.bechberger.jfrtofp.processor.Config
 
 internal class ProcessorKtTest {
     @Test

@@ -1,5 +1,7 @@
 package me.bechberger.jfrtofp.processor
 
+import Field
+import MarkerSchemaFieldMapping
 import MarkerSchemaProcessor
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
@@ -98,9 +100,8 @@ data class Tables(
     fun getMiscFunction(name: String, isNative: Boolean) = funcTable.getMiscFunction(name, isNative)
 
     fun getFrame(
-        frame: RecordedFrame,
-        category: Pair<Int, Int>? = null
-    ) = frameTable.getFrame(frame, category)
+        frame: RecordedFrame
+    ) = frameTable.getFrame(frame)
 
     fun getMiscFrame(
         name: String,
@@ -110,15 +111,13 @@ data class Tables(
     ) = frameTable.getMiscFrame(name, category, subcategory, isNative)
 
     fun getStack(
-        stackTrace: RecordedStackTrace,
-        category: Pair<Int, Int>? = null
-    ) = getStack(stackTrace, category, config.maxStackTraceFrames)
+        stackTrace: RecordedStackTrace
+    ) = getStack(stackTrace, config.maxStackTraceFrames)
 
     fun getStack(
         stackTrace: RecordedStackTrace,
-        category: Pair<Int, Int>? = null,
         maxStackTraceFrames: Int
-    ) = stackTraceTable.getStack(stackTrace, category, maxStackTraceFrames)
+    ) = stackTraceTable.getStack(stackTrace, maxStackTraceFrames)
 
     fun getStack(
         stackTrace: HashedFrameList,
@@ -153,7 +152,7 @@ class RawMarkerTableWrapper(
     fun processEvent(
         event: RecordedEvent
     ) {
-        val fieldMapping = markerSchema[event.eventType] ?: return
+        val fieldMapping: MarkerSchemaFieldMapping = markerSchema[event.eventType] ?: return
         val name = tables.getString(event.eventType.name)
         val startTime = event.startTime.toMillis()
         val endTime = event.endTime.toMillis()
@@ -161,7 +160,8 @@ class RawMarkerTableWrapper(
         val category = CategoryE.fromName(event.eventType.categoryNames.first()).index
         val data =
             event.fields.filter { it.name in fieldMapping && event.getValue<Any>(it.name) != null }.map {
-                fieldMapping[it.name] to MarkerType.fromName(it).convert(tables, event, it.name)
+                val fieldInfo: Field = fieldMapping.get(it.name)!!
+                fieldInfo.name to fieldInfo.type.convert(tables, event, it.name)
                     .toJsonElement()
             }.toMap(mutableMapOf())
         data["type"] = event.eventType.name.toJsonElement()
@@ -292,8 +292,7 @@ class FrameTableWrapper(val tables: Tables) {
     private val miscFrames = mutableMapOf<String, IndexIntoStringTable>()
 
     internal fun getFrame(
-        frame: RecordedFrame,
-        category: Pair<Int, Int>? = null
+        frame: RecordedFrame
     ): IndexIntoFrameTable {
         val func = tables.getFunction(frame.method, frame.isJavaFrame)
         val line = if (frame.lineNumber == -1) null else frame.lineNumber
@@ -377,18 +376,15 @@ class StackTableWrapper(val tables: Tables) {
 
     private fun getHashedFrameList(
         tables: Tables,
-        stackTrace: RecordedStackTrace,
-        category: Pair<Int, Int>? = null
+        stackTrace: RecordedStackTrace
     ) =
-        HashedFrameList(stackTrace.frames.reversed().map { tables.getFrame(it, category) })
+        HashedFrameList(stackTrace.frames.reversed().map { tables.getFrame(it) })
 
     internal fun getStack(
         stackTrace: RecordedStackTrace,
-        category: Pair<Int, Int>? = null,
         maxStackTraceFrames: Int
     ): IndexIntoStackTable {
-        val stack = getStack(getHashedFrameList(tables, stackTrace, category), maxStackTraceFrames)
-        return stack
+        return getStack(getHashedFrameList(tables, stackTrace), maxStackTraceFrames)
     }
 
     internal fun getStack(

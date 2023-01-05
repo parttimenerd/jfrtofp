@@ -15,8 +15,10 @@ import me.bechberger.jfrtofp.types.TableMarkerFormat
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
-data class MarkerSchemaFieldMapping(val name: String, private val fields: Map<String, String>) {
-    operator fun get(key: String) = fields[key] ?: key
+data class Field(val name: String, val type: MarkerType)
+
+data class MarkerSchemaFieldMapping(val name: String, private val fields: Map<String, Field>) {
+    operator fun get(key: String) = fields[key]
 
     operator fun contains(key: String) = key in fields
 }
@@ -68,7 +70,7 @@ class MarkerSchemaProcessor(val config: Config) {
         } else if (isMemoryEvent(name)) {
             display.add(MarkerDisplayLocation.TIMELINE_MEMORY)
         }
-        val mapping = mutableMapOf("stackTrace" to "cause")
+        val mapping = mutableMapOf("stackTrace" to Field("cause", MarkerType.STACKTRACE))
         val addedData = listOfNotNull(
             eventType.description?.let {
                 MarkerSchemaDataStatic(
@@ -90,7 +92,7 @@ class MarkerSchemaProcessor(val config: Config) {
                 "cause" -> "cause "
                 else -> v.name
             }
-            mapping[v.name] = fieldName
+            mapping[v.name] = Field(fieldName, type)
             MarkerSchemaDataString(
                 key = fieldName,
                 label = if (v.label != null && v.label.length < 20) v.label else v.name,

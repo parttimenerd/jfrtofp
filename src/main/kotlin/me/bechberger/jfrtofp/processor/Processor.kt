@@ -1,6 +1,7 @@
 package me.bechberger.jfrtofp.processor
 
 import MarkerSchemaProcessor
+import java.io.ByteArrayOutputStream
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
@@ -37,13 +38,22 @@ import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
 import java.io.OutputStream
+import java.lang.Thread.yield
 import java.nio.file.Path
 import java.time.Instant
 import java.util.NavigableMap
+import java.util.Random
 import java.util.TreeMap
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
 import java.util.stream.LongStream
+import java.util.zip.GZIPOutputStream
 import me.bechberger.jfrtofp.types.PauseReason
 import me.bechberger.jfrtofp.types.PausedRange
 import me.bechberger.jfrtofp.util.estimateIntervalInMillis
@@ -108,6 +118,19 @@ fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMa
     ) + config.sampleMarkerConfigForType(this)
 }
 
+abstract class EventProcessor {
+    abstract fun processEvent(event: RecordedEvent)
+    open fun isFinished(): Boolean = true
+    open fun store(): StoredThing? = null
+}
+
+open class StoredThing(val data: ByteArray, val compressed: Boolean)
+
+class StoredThread(
+    data: ByteArray, compressed: Boolean,
+    val isParentProcessThread: Boolean,
+    val threadId: Long) : StoredThing(data, compressed)
+
 /** assumes that the events come in sorted order */
 class ThreadProcessor(
     val config: Config,
@@ -115,7 +138,7 @@ class ThreadProcessor(
     val threadId: Long,
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor
-) {
+) : EventProcessor() {
 
     private var start: Instant = Instant.MIN
 
@@ -133,6 +156,8 @@ class ThreadProcessor(
     private var threadEndEvent: RecordedEvent? = null
     private var thread: RecordedThread? = null
     private var pausedRanges: MutableList<PausedRange> = mutableListOf()
+
+    private var eventCount = 0
 
     private fun processExecutionSample(event: RecordedEvent) {
         samplesTable.processEvent(event)
@@ -170,7 +195,7 @@ class ThreadProcessor(
         return ceil.value
     }
 
-    fun processEvent(event: RecordedEvent) {
+    override fun processEvent(event: RecordedEvent) {
         if (start == Instant.MIN) {
             start = if (isParentProcessThread) basicInformation.startTime else event.startTime
         }
@@ -192,6 +217,7 @@ class ThreadProcessor(
                 "jdk.ThreadPark" -> pausedRanges.add(PausedRange(event.startTime.toMillis(), event.endTime.toMillis(), PauseReason.PARKED))
             }
         }
+        eventCount++
     }
 
     fun toThread(): me.bechberger.jfrtofp.types.Thread {
@@ -223,15 +249,44 @@ class ThreadProcessor(
     }
 
     fun store(stream: OutputStream) {
+        toThread().encodeToJSONStream(stream)
+    }
+
+    override fun store(): StoredThread {
+        val baos = ByteArrayOutputStream()
+        val compress = eventCount >= COMPRESSION_THRESHOLD
+        if (compress) {
+            GZIPOutputStream(baos).use {
+                store(it)
+            }
+        } else {
+            store(baos)
+        }
+        return StoredThread(
+            baos.toByteArray(),
+            compressed = compress,
+            isParentProcessThread,
+            threadId
+        )
+    }
+
+    override fun isFinished() = threadEndEvent != null
+
+    companion object {
+        private const val COMPRESSION_THRESHOLD = 100
     }
 }
 
-/** Event accepting worker */
-abstract class WorkerThread(val processor: ThreadProcessor) : Thread() {
-    val shouldStop = AtomicBoolean(false)
+
+abstract class AbstractWorkerThread : Thread() {
+    private val shouldStop = AtomicBoolean(false)
     private val queue = ConcurrentLinkedQueue<RecordedEvent>()
 
-    open abstract fun acceptable(event: RecordedEvent): Boolean
+    open fun acceptable(event: RecordedEvent): Boolean = true
+
+    abstract fun processEvent(event: RecordedEvent)
+
+    abstract fun store()
 
     fun acceptEvent(event: RecordedEvent) {
         queue.add(event)
@@ -243,28 +298,88 @@ abstract class WorkerThread(val processor: ThreadProcessor) : Thread() {
 
     override fun run() {
         while (!shouldStop.get()) {
-            val event = queue.poll()
-            if (event != null) {
-                processEvent(event)
-            } else {
-                yield()
+            while (queue.isNotEmpty()) {
+                val event = queue.poll()
+                if (event != null) {
+                    processEvent(event)
+                }
             }
+        }
+        store()
+    }
+}
+
+class AllEventWorkerThread(val processor: EventProcessor) : AbstractWorkerThread() {
+
+    var store: StoredThing? = null
+
+    override fun processEvent(event: RecordedEvent) {
+        processor.processEvent(event)
+    }
+
+    override fun store() {
+        store = processor.store()
+    }
+}
+
+class MainAndUnknownThreadEventWorkerThread(val processor: ThreadProcessor, val mainThreadId: Long) : AbstractWorkerThread() {
+
+    var store: StoredThread? = null
+
+    override fun acceptable(event: RecordedEvent): Boolean {
+        return event.thread == null || event.thread.id == mainThreadId
+    }
+
+    override fun processEvent(event: RecordedEvent) {
+        processor.processEvent(event)
+    }
+
+    override fun store() {
+        store = processor.store()
+    }
+}
+
+class UnknownThreadEventWorkerThread(val processor: EventProcessor) : AbstractWorkerThread() {
+
+    var store: StoredThing? = null
+
+    override fun acceptable(event: RecordedEvent): Boolean {
+        return event.thread == null
+    }
+
+    override fun processEvent(event: RecordedEvent) {
+        processor.processEvent(event)
+    }
+
+    override fun store() {
+        store = processor.store()
+    }
+}
+
+class SpecificThreadEventWorkerThread(val processors: Map<Long, ThreadProcessor>) : AbstractWorkerThread() {
+    val store: MutableMap<Long, StoredThread> = mutableMapOf()
+    private val nonStoredThreads = ConcurrentHashMap<Long, Boolean>(processors.keys.map { it to false }.toMap())
+
+    override fun acceptable(event: RecordedEvent): Boolean {
+        return nonStoredThreads.containsKey(event.realThread?.id)
+    }
+
+    override fun processEvent(event: RecordedEvent) {
+        val threadId = event.realThread?.id
+        if (!nonStoredThreads.containsKey(threadId)) {
+            return
+        }
+        val processor = processors[threadId]!!
+        processor.processEvent(event)
+        if (processor.isFinished()) {
+            store[processor.threadId] = processor.store()
+            nonStoredThreads -= processor.threadId
         }
     }
 
-    open abstract fun processEvent(event: RecordedEvent)
-}
-
-class Executor(private val path: Path, private val workerThreads: List<WorkerThread>) {
-
-    fun process() {
-        RecordingFile(path).use { file ->
-            while (file.hasMoreEvents()) {
-                val event = file.readEvent()
-                workerThreads.filter { it.acceptable(event) }.forEach { it.acceptEvent(event) }
-            }
-            workerThreads.forEach { it.signalStop() }
-            workerThreads.forEach { it.join() }
+    override fun store() {
+        nonStoredThreads.keys.forEach {
+            store[it] = processors[it]!!.store()
         }
     }
 }
@@ -418,9 +533,9 @@ data class BasicInformation(
     }
 }
 
-internal sealed class AbstractThreadInfo(val startTime: Instant)
+sealed class AbstractThreadInfo(val startTime: Instant)
 
-internal class BasicThreadInfo(
+class BasicThreadInfo(
     startTime: Instant,
     val recordedThread: RecordedThread,
     val isMainThread: Boolean,
@@ -441,7 +556,7 @@ internal class BasicThreadInfo(
     override fun compareTo(other: BasicThreadInfo) = if (score > other.score) -1 else if (score < other.score) 1 else 0
 }
 
-internal class ParentThreadInfo(
+class ParentThreadInfo(
     startTime: Instant,
 ) : AbstractThreadInfo(startTime)
 
@@ -739,17 +854,38 @@ internal class MetaProcessor(
     }
 }
 
-class Processor(val config: Config, val jfrFile: Path) {
+abstract class Processor(val config: Config, val jfrFile: Path) {
 
     val basicInformation = BasicInformation.obtain(jfrFile, config)
     val markerSchema = MarkerSchemaProcessor(config)
 
-    fun process(outputStream: OutputStream) {
-        // if (jfrFile.fileSize() <= MAX_JFR_SIZE_FOR_SINGLE_THREAD || config.maxThreads == 1) {
+    /** writes the JSON directly, without zipping it */
+    abstract fun process(outputStream: OutputStream)
+
+    fun processZipped(outputStream: OutputStream) {
+        GZIPOutputStream(outputStream).use { zippedStream ->
+            process(zippedStream)
+        }
+    }
+
+    companion object {
+        const val MAX_JFR_SIZE_FOR_SINGLE_THREAD = 5_000_000L
+
+        fun create(config: Config, jfrFile: Path): Processor {
+            val size = jfrFile.toFile().length()
+            return if (size > MAX_JFR_SIZE_FOR_SINGLE_THREAD) {
+                MultiThreadedProcessor(config, jfrFile)
+            } else {
+                SimpleProcessor(config, jfrFile)
+            }
+        }
+    }
+}
+
+class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
+
+    override fun process(outputStream: OutputStream) {
         processSingleThreaded().encodeToJSONStream(outputStream)
-        // } else {
-        //   processMultiThreaded(outputStream)
-        // }
     }
 
     internal fun processSingleThreaded(): Profile {
@@ -800,15 +936,109 @@ class Processor(val config: Config, val jfrFile: Path) {
             counters = processCounterProcessor.generateCounters(metaProcessor.endTime)
         )
     }
+}
 
-    companion object {
-        const val MAX_JFR_SIZE_FOR_SINGLE_THREAD = 5_000_000L
+class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
+    // -1 being the parent process thread
+    private val storedThreads = mutableMapOf<Long, StoredThread>()
+    private val metaProcessor: MetaProcessor = MetaProcessor(jfrFile, basicInformation, markerSchema, config)
+    private val counterProcessor = ProcessCounterProcessor(basicInformation, config)
+
+    private fun ignoreEvent(event: RecordedEvent): Boolean {
+        return event.eventType.name in config.ignoredEvents || (
+            !config.includeGCThreads && metaProcessor.isGCThread(event.realThread?.id ?: -1)
+            )
+    }
+
+    override fun process(outputStream: OutputStream) {
+        firstRun()
+        secondRun()
+    }
+
+    /**
+     * Create the counters, ProfileMeta and handle the parent process and main thread tracks
+     */
+    internal fun firstRun() {
+        val parentProcessThreadProcessor = ThreadProcessor(config, true, -1, basicInformation, markerSchema)
+        val parentProcessThreadWorker = AllEventWorkerThread(parentProcessThreadProcessor)
+        val mainThreadProcessor = ThreadProcessor(config, false, basicInformation.mainThreadId, basicInformation, markerSchema)
+        val mainThreadWorker = AllEventWorkerThread(mainThreadProcessor)
+
+        parentProcessThreadWorker.start()
+        mainThreadWorker.start()
+
+        RecordingFile(jfrFile).use { file ->
+            while (file.hasMoreEvents()) {
+                val event = file.readEvent()
+                if (ignoreEvent(event)) {
+                    continue
+                }
+                metaProcessor.processEvent(event)
+                counterProcessor.processEvent(event)
+                val realThread = event.realThread
+                if (realThread != null) {
+                    if (realThread.id == basicInformation.mainThreadId) {
+                        mainThreadWorker.acceptEvent(event)
+                    }
+                } else {
+                    parentProcessThreadWorker.acceptEvent(event)
+                }
+            }
+        }
+
+        parentProcessThreadWorker.signalStop()
+        mainThreadWorker.signalStop()
+        parentProcessThreadWorker.join()
+        mainThreadWorker.join()
+
+        storedThreads[-1] = parentProcessThreadProcessor.store()
+        storedThreads[basicInformation.mainThreadId] = mainThreadProcessor.store()
+    }
+
+    internal fun secondRun() {
+        val workers = mutableListOf<SpecificThreadEventWorkerThread>()
+
+        val threadIds = metaProcessor.threads.keys.filter { it != -1L && it != basicInformation.mainThreadId }.shuffled()
+        val random = Random()
+        threadIds.groupBy { random.nextInt(config.maxUsedThreads) }.map { (id, threads) ->
+            while (workers.size <= id) {
+                val worker = SpecificThreadEventWorkerThread(threads.map { thread -> thread to ThreadProcessor(config, false, thread, basicInformation, markerSchema) }.toMap())
+                workers.add(worker)
+            }
+        }
+
+        workers.forEach { it.start() }
+
+        RecordingFile(jfrFile).use { file ->
+            while (file.hasMoreEvents()) {
+                val event = file.readEvent()
+                if (ignoreEvent(event)) {
+                    continue
+                }
+                val realThread = event.realThread
+                if (realThread != null) {
+                    workers.forEach {
+                        if (it.acceptable(event)) {
+                            it.acceptEvent(event)
+                        }
+                    }
+                }
+            }
+        }
+
+        workers.forEach { it.signalStop() }
+        workers.forEach { it.join() }
+
+        workers.forEach { worker ->
+            storedThreads.putAll(worker.store)
+        }
     }
 }
 
 fun main() {
     /*val processor = Processor(Config(), Path.of("samples/small_profile.jfr"))
     processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/small_profile.json.gz").outputStream())*/
-    val processor = Processor(Config(), Path.of("samples/flight_large.jfr"))
-     processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/flight_large.json.gz").outputStream())
+    val processor = SimpleProcessor(Config(), Path.of("samples/flight_large.jfr"))
+    processor.processZipped(Path.of("samples/flight_large.json.gz").outputStream())
+     //processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/flight_large.json.gz").outputStream())
 }

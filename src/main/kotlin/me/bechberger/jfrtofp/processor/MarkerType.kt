@@ -224,7 +224,7 @@ enum class MarkerType(
             0
         } else {
             mutableMapOf<String, Any>(
-                "stack" to tables.stackTraceTable.getStack(st, CategoryE.MISC_OTHER, tables.config.maxStackTraceFrames),
+                "stack" to tables.stackTraceTable.getStack(st, tables.config.maxStackTraceFrames),
                 "time" to event.startTime.toMillis()
             )
         }
