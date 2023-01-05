@@ -3,11 +3,15 @@ package me.bechberger.jfrtofp.processor
 import Field
 import MarkerSchemaFieldMapping
 import MarkerSchemaProcessor
+import java.util.stream.Collectors
+import java.util.stream.IntStream
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
 import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedStackTrace
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToStream
 import me.bechberger.jfrtofp.types.FrameTable
 import me.bechberger.jfrtofp.types.FuncTable
 import me.bechberger.jfrtofp.types.IndexIntoCategoryList
@@ -24,11 +28,13 @@ import me.bechberger.jfrtofp.types.ResourceTable
 import me.bechberger.jfrtofp.types.SamplesTable
 import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.resourceTypeEnum
+import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.ByteCodeHelper
 import me.bechberger.jfrtofp.util.HashedList2
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.StringTableWrapper
 import me.bechberger.jfrtofp.util.className
+import me.bechberger.jfrtofp.util.jsonFormat
 import me.bechberger.jfrtofp.util.pkg
 import me.bechberger.jfrtofp.util.toJsonElement
 import me.bechberger.jfrtofp.util.toMillis
@@ -74,6 +80,18 @@ class SamplesTableWrapper(val tables: Tables) {
             time = time,
             threadCPUDelta = threadCPUDelta
         )
+    }
+
+    fun write(json: BasicJSONGenerator, cpuLoad: (Milliseconds) -> Percentage) {
+        val samplesTable = toSamplesTable(cpuLoad)
+        json.writeStartObject()
+        json.writeNumberArrayField("stack", samplesTable.stack)
+        json.writeNumberArrayField("time", samplesTable.time)
+        json.writeNumberArrayField("threadCPUDelta", samplesTable.threadCPUDelta!!)
+        json.writeSingleValueArrayField("eventDelay", "0.0", samplesTable.stack.size)
+        json.writeSimpleField("weightType", "samples")
+        json.writeSimpleField("length", samplesTable.stack.size, last = true)
+        json.writeEndObject()
     }
 }
 
@@ -188,6 +206,31 @@ class RawMarkerTableWrapper(
             category = sortedItems.map { it.category }
         )
     }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    fun write(json: BasicJSONGenerator) {
+        val sortedItems = items.sortedBy { it.startTime } // TODO: really needed?
+        json.writeStartObject()
+
+        json.writeNumberArrayField("name", sortedItems.map { it.name })
+        json.writeNumberArrayField("startTime", sortedItems.map { it.startTime })
+        json.writeNumberArrayField("endTime", sortedItems.map { it.endTime })
+        json.writeNumberArrayField("phase", sortedItems.map { it.phase })
+        json.writeNumberArrayField("category", sortedItems.map { it.category })
+        json.writeSimpleField("length", sortedItems.size)
+
+        json.writeFieldName("data")
+        json.writeStartArray()
+        sortedItems.forEach {
+            jsonFormat.encodeToStream(it.data, json.output)
+            if (it != sortedItems.last()) {
+                json.writeFieldSep()
+            }
+        }
+        json.writeEndArray()
+
+        json.writeEndObject()
+    }
 }
 
 class ResourceTableWrapper(val tables: Tables) {
@@ -212,6 +255,16 @@ class ResourceTableWrapper(val tables: Tables) {
     }
 
     fun toResourceTable() = ResourceTable(name = names, host = hosts, type = types)
+
+    fun write(json: BasicJSONGenerator) {
+        json.writeStartObject()
+        json.writeNumberArrayField("name", names)
+        json.writeNumberArrayField("host", hosts)
+        json.writeNumberArrayField("type", types)
+        json.writeSimpleField("length", size)
+        json.writeNullArrayField("lib", size, last = true)
+        json.writeEndObject()
+    }
 
     val size: Int
         get() = names.size
@@ -278,6 +331,20 @@ class FuncTableWrapper(val tables: Tables) {
         sourceUrl = sourceUrls
     )
 
+    fun write(json: BasicJSONGenerator) {
+        json.writeStartObject()
+        json.writeNumberArrayField("name", names)
+        json.writeBooleanArrayField("isJS", isJss)
+        json.writeBooleanArrayField("relevantForJS", relevantForJss)
+        json.writeNumberArrayField("resource", resourcess)
+        json.writeNumberArrayField("fileName", fileNames)
+        json.writeNumberArrayField("sourceUrl", sourceUrls)
+        json.writeSimpleField("length", size)
+        json.writeNullArrayField("lineNumber", size)
+        json.writeNullArrayField("columnNumber", size, last = true)
+        json.writeEndObject()
+    }
+
     val size: Int
         get() = fileNames.size
 }
@@ -330,6 +397,21 @@ class FrameTableWrapper(val tables: Tables) {
             lines.add(null)
             lines.size - 1
         }
+    }
+
+    fun write(json: BasicJSONGenerator) {
+        json.writeStartObject()
+        json.writeNumberArrayField("category", categories)
+        json.writeNumberArrayField("subcategory", subcategories)
+        json.writeNumberArrayField("func", funcs)
+        json.writeNumberArrayField("line", lines)
+        json.writeSingleValueArrayField("address", "-1", size)
+        json.writeSingleValueArrayField("inlineDepth", "0", size)
+        for (name in listOf("nativeSymbol", "innerWindowID", "implementation", "column", "optimizations")) {
+            json.writeNullArrayField(name, size)
+        }
+        json.writeSimpleField("length", size, last = true)
+        json.writeEndObject()
     }
 
     fun getCategoryOfFrame(frame: IndexIntoFrameTable): Pair<IndexIntoCategoryList, IndexIntoSubcategoryListForCategory> {
@@ -441,6 +523,16 @@ class StackTableWrapper(val tables: Tables) {
 
     fun toStackTable() =
         StackTable(frame = frames, prefix = prefix, category = categories, subcategory = subcategories)
+
+    fun write(json: BasicJSONGenerator) {
+        json.writeStartObject()
+        json.writeNumberArrayField("frame", frames)
+        json.writeNumberArrayField("prefix", prefix)
+        json.writeNumberArrayField("category", categories)
+        json.writeNumberArrayField("subcategory", subcategories)
+        json.writeSimpleField("length", size, last = true)
+        json.writeEndObject()
+    }
 
     val size: Int
         get() = frames.size

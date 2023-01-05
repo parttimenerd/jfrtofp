@@ -1,6 +1,7 @@
 package me.bechberger.jfrtofp.processor
 
 import MarkerSchemaProcessor
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
@@ -54,9 +55,16 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.encodeToStream
 import me.bechberger.jfrtofp.types.PauseReason
 import me.bechberger.jfrtofp.types.PausedRange
+import me.bechberger.jfrtofp.types.Pid
+import me.bechberger.jfrtofp.types.Tid
+import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.estimateIntervalInMillis
+import me.bechberger.jfrtofp.util.jsonFormat
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
@@ -220,19 +228,37 @@ class ThreadProcessor(
         eventCount++
     }
 
+    private val processType: String
+        get() = if (isParentProcessThread) "tab" else "default"
+
+    private val registerTime: Milliseconds
+        get() = threadStartEvent?.startTime?.toMillis() ?: start.toMillis()
+
+    private val unregisterTime: Milliseconds
+        get() = threadEndEvent?.startTime?.toMillis() ?: end.toMillis()
+
+    private val name: String
+        get() = if (isParentProcessThread) "GeckoMain" else thread?.let { it.javaName ?: it.osName } ?: "<unknown>"
+
+    private val pid: Pid
+        get() = basicInformation.pid
+
+    private val tid: Tid
+        get() = if (isParentProcessThread) 0 else threadId
+
     fun toThread(): me.bechberger.jfrtofp.types.Thread {
         return me.bechberger.jfrtofp.types.Thread(
-            processType = if (isParentProcessThread) "tab" else "default",
+            processType = processType,
             processStartupTime = start.toMillis(),
             processShutdownTime = end.toMillis(),
-            registerTime = threadStartEvent?.startTime?.toMillis() ?: start.toMillis(),
-            unregisterTime = threadEndEvent?.startTime?.toMillis() ?: end.toMillis(),
+            registerTime = registerTime,
+            unregisterTime = unregisterTime,
             pausedRanges = pausedRanges.sortedBy { it.startTime!! },
             // the global process track has to have type "tab" and name "GeckoMain"
-            name = if (isParentProcessThread) "GeckoMain" else thread?.let { it.javaName ?: it.osName } ?: "<unknown>",
+            name = name,
             processName = "Parent Process",
-            pid = basicInformation.pid,
-            tid = if (isParentProcessThread) 0 else threadId,
+            pid = pid,
+            tid = tid,
             samples = samplesTable.toSamplesTable(this::getCpuLoad),
             jsAllocations = null,
             nativeAllocations = null,
@@ -248,19 +274,69 @@ class ThreadProcessor(
         )
     }
 
-    fun store(stream: OutputStream) {
+    /** user the JSON serialization library for everything */
+    fun store2(stream: OutputStream) {
         toThread().encodeToJSONStream(stream)
     }
 
+    /** don't use automatic serialization */
+    @OptIn(ExperimentalSerializationApi::class)
+    fun store(stream: OutputStream) {
+        val json = BasicJSONGenerator(stream)
+        json.writeStartObject()
+        json.writeSimpleField("processType", processType)
+        json.writeSimpleField("processStartupTime", start.toMillis())
+        json.writeSimpleField("processShutdownTime", end.toMillis())
+        json.writeSimpleField("registerTime", registerTime)
+        json.writeSimpleField("unregisterTime", unregisterTime)
+        json.writeField("pausedRanges", jsonFormat.encodeToString(pausedRanges.sortedBy { it.startTime!! }))
+        json.writeSimpleField("name", name)
+        json.writeSimpleField("pid", pid)
+        json.writeSimpleField("tid", tid)
+
+        json.writeFieldName("samples")
+        samplesTable.write(json, this::getCpuLoad)
+        json.writeFieldSep()
+
+        json.writeFieldName("markers")
+        tables.rawMarkerTable.toRawMarkerTable()
+        json.writeFieldSep()
+
+        json.writeFieldName("stackTable")
+        tables.stackTraceTable.write(json)
+        json.writeFieldSep()
+
+        json.writeFieldName("frameTable")
+        tables.frameTable.write(json)
+        json.writeFieldSep()
+
+        json.writeField("gTable", "[]")
+
+        json.writeFieldName("funcTable")
+        tables.funcTable.write(json)
+        json.writeFieldSep()
+
+        json.writeArrayField("stringArray", tables.stringTable.toStringTable(), json::writeString)
+
+        json.writeFieldName("resourceTable")
+        tables.resourceTable.write(json)
+        json.writeFieldSep()
+
+        json.writeField("nativeSymbols", jsonFormat.encodeToString(NativeSymbolTable(listOf(), listOf(), listOf(), listOf())))
+        json.writeField("sampleLikeMarkersConfig", jsonFormat.encodeToString(generateSampleLikeMarkersConfig()), last = true)
+        json.writeEndObject()
+    }
+
     override fun store(): StoredThread {
+        val storeFunc = if (isParentProcessThread) ::store else ::store2
         val baos = ByteArrayOutputStream()
         val compress = eventCount >= COMPRESSION_THRESHOLD
         if (compress) {
             GZIPOutputStream(baos).use {
-                store(it)
+                storeFunc(it)
             }
         } else {
-            store(baos)
+            storeFunc(baos)
         }
         return StoredThread(
             baos.toByteArray(),
@@ -864,7 +940,7 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 
     fun processZipped(outputStream: OutputStream) {
         GZIPOutputStream(outputStream).use { zippedStream ->
-            process(zippedStream)
+            process(BufferedOutputStream(zippedStream))
         }
     }
 
@@ -884,15 +960,36 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 
 class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
 
-    override fun process(outputStream: OutputStream) {
-        processSingleThreaded().encodeToJSONStream(outputStream)
+    @OptIn(ExperimentalSerializationApi::class)
+    fun writeProfile(outputStream: OutputStream, meta: ProfileMeta, threads: List<StoredThread>, counters: List<Counter>) {
+        val json = BasicJSONGenerator(outputStream)
+        json.writeStartObject()
+        json.writeFieldName("libs")
+        json.writeEmptyArray()
+        json.writeFieldSep()
+        json.writeFieldName("meta")
+        meta.encodeToJSONStream(outputStream)
+        json.writeFieldSep()
+        json.writeFieldName("threads")
+        json.writeArray(threads) { thread ->
+            json.writeRawByteArray(thread.data, thread.compressed)
+        }
+        json.writeFieldSep()
+        json.writeFieldName("counters")
+        json.writeArray(counters) { counter ->
+            jsonFormat.encodeToStream(counter, json.output)
+        }
+        json.writeEndObject()
     }
 
-    internal fun processSingleThreaded(): Profile {
+    override fun process(outputStream: OutputStream) {
         val threadToProcessor = mutableMapOf<Long, ThreadProcessor>()
+        val storedThreads = mutableMapOf<Long, StoredThread>()
+
         val metaProcessor = MetaProcessor(jfrFile, basicInformation, markerSchema, config)
         val processCounterProcessor = ProcessCounterProcessor(basicInformation, config)
         val parentThreadProcessor = ThreadProcessor(config, true, -1, basicInformation, markerSchema)
+
         RecordingFile(jfrFile).use { file ->
             while (file.hasMoreEvents()) {
                 val event = file.readEvent()
@@ -904,7 +1001,7 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
                 val processor: ThreadProcessor
                 val realThread = event.realThread
                 if (realThread != null) {
-                    if (!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) {
+                    if ((!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) || storedThreads.containsKey(realThread.id)) {
                         continue
                     }
                     processor = threadToProcessor.getOrPut(realThread.id) {
@@ -916,23 +1013,26 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
                             markerSchema
                         )
                     }
+                    processor.processEvent(event)
+                    if (processor.isFinished()) {
+                        storedThreads[realThread.id] = processor.store()
+                        threadToProcessor.remove(realThread.id)
+                    }
                 } else {
-                    processor = parentThreadProcessor
+                    parentThreadProcessor.processEvent(event)
                 }
-                processor.processEvent(event)
             }
         }
-        return Profile(
-            libs = listOf(),
+        val threads = metaProcessor.sortedThreads().map {
+            when (it) {
+                    is ParentThreadInfo -> parentThreadProcessor.store()
+                    is BasicThreadInfo -> storedThreads[it.id] ?: threadToProcessor[it.id]!!.store()
+                }
+        }
+        writeProfile(
+            outputStream,
             meta = metaProcessor.toMeta(),
-            threads = metaProcessor.sortedThreads().map {
-                (
-                    when (it) {
-                        is ParentThreadInfo -> parentThreadProcessor
-                        is BasicThreadInfo -> threadToProcessor[it.id]!!
-                    }
-                    ).toThread()
-            },
+            threads = threads,
             counters = processCounterProcessor.generateCounters(metaProcessor.endTime)
         )
     }
@@ -1036,9 +1136,8 @@ class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, 
 }
 
 fun main() {
-    /*val processor = Processor(Config(), Path.of("samples/small_profile.jfr"))
-    processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/small_profile.json.gz").outputStream())*/
-    val processor = SimpleProcessor(Config(), Path.of("samples/flight_large.jfr"))
-    processor.processZipped(Path.of("samples/flight_large.json.gz").outputStream())
-     //processor.processSingleThreaded().encodeToZippedStream(Path.of("samples/flight_large.json.gz").outputStream())
+    val jfrFilePart = "flight_large"
+    val processor = SimpleProcessor(Config(), Path.of("samples/$jfrFilePart.jfr"))
+    processor.processZipped(Path.of("samples/$jfrFilePart.json.gz").outputStream())
+    //processor.process(Path.of("samples/$jfrFilePart.json").outputStream())
 }
