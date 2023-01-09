@@ -948,11 +948,7 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 
         fun create(config: Config, jfrFile: Path): Processor {
             val size = jfrFile.toFile().length()
-            return if (size > MAX_JFR_SIZE_FOR_SINGLE_THREAD) {
-                MultiThreadedProcessor(config, jfrFile)
-            } else {
-                SimpleProcessor(config, jfrFile)
-            }
+            return SimpleProcessor(config, jfrFile)
         }
     }
 }
