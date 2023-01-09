@@ -114,7 +114,7 @@ data class Config(
     val selectProcessTrackInitially: Boolean = true,
     val initialSelectedThreads: Int = 10,
     val sourcePath: Path? = null,
-    val sourceUrl: String? = null,
+    var sourceUrl: String? = null,
     val maxUsedThreads: Int = Runtime.getRuntime().availableProcessors(),
     /** they don't contain that much information, but might appear really often */
     val includeGCThreads: Boolean = false,

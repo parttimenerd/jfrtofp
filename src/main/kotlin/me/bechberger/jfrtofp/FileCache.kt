@@ -90,6 +90,13 @@ class FileCache(
         return Base64.getEncoder().encodeToString(digest.digest()).replace("/", "_")
     }
 
+    fun setMaxSize(size: Long) {
+        maxSize.set(size)
+        ensureFreeSpace(0)
+    }
+
+    fun getMaxSize() = maxSize.get()
+
     private fun hashSum(config: Config): String {
         return config.toString().hashCode().toString()
     }
