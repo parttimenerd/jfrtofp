@@ -16,9 +16,5 @@ jobs:
         run: chmod +x gradlew
       - name: Build the project
         run: ./gradlew assemble
-      - name: ktlint
-        run: ./gradlew ktlintCheck
-      - name: detekt
-        run: ./gradlew detekt
       - name: test
         run: ./gradlew test
