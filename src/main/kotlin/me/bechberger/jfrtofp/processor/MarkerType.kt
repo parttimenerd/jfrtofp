@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import jdk.incubator.vector.VectorOperators.LOG
 import jdk.jfr.ValueDescriptor
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedMethod
@@ -124,11 +123,11 @@ enum class MarkerType(
         BasicMarkerFormatType.INTEGER,
         { tables, _, fieldValue ->
             val startTimeMillis = tables.basicInformation.startTimeMillis
-            var fieldValue = (fieldValue as Long) * 1.0
-            while (fieldValue > startTimeMillis * 100) { // get it in the same ball-park, works with timestamps but not with time spans
-                fieldValue /= 1000
+            var longValue = (fieldValue as Long) * 1.0
+            while (longValue > startTimeMillis * 100) { // get it in the same ball-park, works with timestamps but not with time spans
+                longValue /= 1000
             }
-            fieldValue - tables.basicInformation.startTimeMillis
+            longValue - tables.basicInformation.startTimeMillis
         }
     ),
     TIMESPAN(
@@ -149,19 +148,16 @@ enum class MarkerType(
         }
     }),
 
-    COMPILER_PHASE_TYPE("phase", STRING), COMPILER_TYPE("compiler", STRING), DEOPTIMIZATION_ACTION(
-        "action",
+    COMPILER_PHASE_TYPE(STRING), COMPILER_TYPE(STRING), DEOPTIMIZATION_ACTION(
         STRING
     ),
-    DEOPTIMIZATION_REASON("reason", STRING), FLAG_VALUE_ORIGIN("origin", STRING), FRAME_TYPE(
-        "description",
+    DEOPTIMIZATION_REASON(STRING), FLAG_VALUE_ORIGIN(STRING), FRAME_TYPE(
         STRING
     ),
-    G1_HEAP_REGION_TYPE("type", STRING), G1_YC_TYPE("type", STRING), GC_CAUSE("cause", STRING), GC_NAME(
-        "name",
+    G1_HEAP_REGION_TYPE(STRING), G1_YC_TYPE(STRING), GC_CAUSE(STRING), GC_NAME(
         STRING
     ),
-    GC_THRESHHOLD_UPDATER("updater", STRING), GC_WHEN("when", STRING), INFLATE_CAUSE("cause", STRING), MODIFIERS(
+    GC_THRESHHOLD_UPDATER(STRING), GC_WHEN(STRING), INFLATE_CAUSE(STRING), MODIFIERS(
         BasicMarkerFormatType.STRING,
         { _, _, fieldValue ->
             val modInt = fieldValue as Int
@@ -214,16 +210,13 @@ enum class MarkerType(
         BasicMarkerFormatType.BYTES,
         { _, _, fieldValue -> (fieldValue as Double) / 8 }
     ),
-    METADATA_TYPE("type", STRING), METASPACE_OBJECT_TYPE("type", STRING), NARROW_OOP_MODE(
-        "mode",
+    METADATA_TYPE(STRING), METASPACE_OBJECT_TYPE(STRING), NARROW_OOP_MODE(
         STRING
     ),
-    NETWORK_INTERFACE_NAME("networkInterface", STRING), OLD_OBJECT_ROOT_TYPE(
-        "type",
+    NETWORK_INTERFACE_NAME(STRING), OLD_OBJECT_ROOT_TYPE(
         STRING
     ),
-    OLD_OBJECT_ROOT_SYSTEM("system", STRING), REFERENCE_TYPE("type", STRING), ShenandoahHeapRegionState(
-        "state",
+    OLD_OBJECT_ROOT_SYSTEM(STRING), REFERENCE_TYPE(STRING), ShenandoahHeapRegionState(
         STRING
     ),
     STACKTRACE(BasicMarkerFormatType.INTEGER, { tables, startTime, fieldValue ->
@@ -237,16 +230,14 @@ enum class MarkerType(
             )
         }
     }),
-    SYMBOL("string", STRING), ThreadState("name", STRING), TICKS(
+    SYMBOL(STRING), ThreadState(STRING), TICKS(
         BasicMarkerFormatType.INTEGER,
         { _, _, fieldValue -> fieldValue as Long }
     ),
     TICKSPAN(BasicMarkerFormatType.INTEGER, { _, _, fieldValue -> fieldValue as Long }), VMOperationType(
-        "type",
         STRING
     ),
-    ZPageTypeType("type", STRING), ZStatisticsCounterType("type", STRING), ZStatisticsSamplerType(
-        "type",
+    ZPageTypeType(STRING), ZStatisticsCounterType(STRING), ZStatisticsSamplerType(
         STRING
     ),
     PATH(
@@ -262,7 +253,7 @@ enum class MarkerType(
         { _, _, fieldValue -> ByteCodeHelper.formatFunctionWithClass(fieldValue as RecordedMethod) }
     );
 
-    constructor(childField: String, type: MarkerType, generic: Boolean = false) : this(
+    constructor(type: MarkerType, generic: Boolean = false) : this(
         type.type,
         { tables, startTime, fieldValue ->
             type.converter(tables, startTime, fieldValue)
@@ -342,7 +333,7 @@ enum class MarkerType(
                         fields.add(path + "type" to field.typeName)
                         fieldValue.fields.map { it to fieldValue.getValue<Any?>(it.name) }
                             .filter { it.second != null }
-                            .forEach { (field, value) -> addField(path + fieldName(field), field, fieldValue) }
+                            .forEach { (field, _) -> addField(path + fieldName(field), field, fieldValue) }
                     } else {
                         var type = fromName(
                             field

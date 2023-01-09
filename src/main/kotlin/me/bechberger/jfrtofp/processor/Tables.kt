@@ -1,7 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import MarkerSchemaFieldMapping
-import MarkerSchemaProcessor
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
 import jdk.jfr.consumer.RecordedMethod
@@ -27,7 +25,7 @@ import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.ByteCodeHelper
-import me.bechberger.jfrtofp.util.HashedList2
+import me.bechberger.jfrtofp.util.HashedList
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.StringTableWrapper
 import me.bechberger.jfrtofp.util.className
@@ -303,7 +301,7 @@ class FuncTableWrapper(val tables: Tables) {
             sourceUrls.add(url.let { tables.getString(url) })
             names.add(tables.getString(ByteCodeHelper.formatFunctionWithClass(func)))
             isJss.add(isJava)
-            relevantForJss.add(tables.config.isRelevantForJava(func))
+            relevantForJss.add(true)
             resourcess.add(tables.getResource(func, isJava))
             fileNames.add(null)
             map.size
@@ -424,7 +422,7 @@ class FrameTableWrapper(val tables: Tables) {
         get() = funcs.size
 }
 
-typealias HashedFrameList = HashedList2<IndexIntoFrameTable>
+typealias HashedFrameList = HashedList<IndexIntoFrameTable>
 
 class StackTableWrapper(val tables: Tables) {
 

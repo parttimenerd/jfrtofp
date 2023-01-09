@@ -1,9 +1,9 @@
+package me.bechberger.jfrtofp.processor
+
 import jdk.jfr.EventType
 import jdk.jfr.ValueDescriptor
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedObject
-import me.bechberger.jfrtofp.processor.Config
-import me.bechberger.jfrtofp.processor.MarkerType
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.MarkerDisplayLocation
 import me.bechberger.jfrtofp.types.MarkerSchema
@@ -26,10 +26,9 @@ data class Field(
     val label: String? = null,
 ) {
     init {
-        if (sourceName == null && sourceAccessor == null) {
-            throw IllegalArgumentException("Either sourceName or sourceAccessor must be set")
-        }
-        assert(targetName != null)
+        assert(
+            sourceName != null || sourceAccessor != null
+        ) { "Either sourceName or sourceAccessor must be set" }
     }
     fun getValue(event: RecordedEvent): Any? {
         return sourceAccessor?.invoke(event) ?: event.getValue(sourceName!!)

@@ -26,7 +26,7 @@ plugins {
     // id("io.gitlab.arturbosch.detekt") version "1.21.0"
     pmd
 
-    id("org.jlleitschuh.gradle.ktlint") version "11.0.0"
+    //id("org.jlleitschuh.gradle.ktlint") version "11.0.0"
 
     `maven-publish`
 
@@ -98,8 +98,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 }
 
 tasks.register<Copy>("copyHooks") {
-    from("bin/pre-commit")
-    into(".git/hooks")
+    //from("bin/pre-commit")
+    //into(".git/hooks")
 }
 
 tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))

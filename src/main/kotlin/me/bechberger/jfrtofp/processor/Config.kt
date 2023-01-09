@@ -140,11 +140,4 @@ data class Config(
         "jdk.ModuleExport",
         "jdk.ModuleRequire"
     ),
-) {
-
-    fun isRelevantForJava(func: RecordedMethod) = false
-
-    fun toUrl(func: RecordedMethod): String {
-        return func.type.name + "#" + func.name + func.descriptor
-    }
-}
+)

@@ -1,8 +1,7 @@
 package me.bechberger.jfrtofp
 
 import me.bechberger.jfrtofp.processor.Config
-import me.bechberger.jfrtofp.util.encodeToJSONStream
-import me.bechberger.jfrtofp.util.encodeToZippedStream
+import me.bechberger.jfrtofp.processor.SimpleProcessor
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -10,15 +9,16 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.extension
+import kotlin.math.max
 import kotlin.streams.asSequence
 
 /** cache the conversion result for JFR files */
 class FileCache(
     location: Path? = null,
     maxSize: Long = 2_000_000_000,
-    val extension: String = ".json.gz"
+    private val extension: String = ".json.gz"
 ) {
-    val tmpLocation = location ?: DEFAULT_LOCATION
+    private val tmpLocation = location ?: DEFAULT_LOCATION
     init {
         try {
             Files.createDirectories(tmpLocation)
@@ -46,20 +46,20 @@ class FileCache(
         return Files.exists(filePath(jfrFile, config))
     }
 
-    internal fun create(jfrFile: Path, config: Config, filePath: Path) {
+    private fun create(jfrFile: Path, config: Config, filePath: Path) {
         Files.newOutputStream(filePath).use { baas ->
-            val profile = FirefoxProfileGenerator(jfrFile, config).generate()
+            val processor = SimpleProcessor(config, jfrFile)
             when (filePath.extension) {
-                "json" -> profile.encodeToJSONStream(baas)
-                "gz" -> profile.encodeToZippedStream(baas)
+                "json" -> processor.process(baas)
+                "gz" -> processor.processZipped(baas)
                 else -> throw IllegalArgumentException("Unknown file extension: ${filePath.extension}")
             }
             ensureFreeSpace(0)
         }
     }
 
-    internal fun ensureFreeSpace(amount: Long) {
-        while (cacheSize() > Math.max(0, maxSize.get() - amount)) {
+    private fun ensureFreeSpace(amount: Long) {
+        while (cacheSize() > max(0, maxSize.get() - amount)) {
             val oldest = Files.list(tmpLocation).asSequence().minByOrNull { Files.getLastModifiedTime(it).toMillis() }
             if (oldest != null) {
                 Files.delete(oldest)
@@ -67,17 +67,17 @@ class FileCache(
         }
     }
 
-    internal fun cacheSize() = Files.list(tmpLocation).mapToLong { it.toFile().length() }.sum()
+    private fun cacheSize() = Files.list(tmpLocation).mapToLong { it.toFile().length() }.sum()
 
-    internal fun filePath(jfrFile: Path, config: Config): Path {
+    private fun filePath(jfrFile: Path, config: Config): Path {
         return tmpLocation.resolve(hashSum(jfrFile, config) + extension)
     }
 
-    internal fun hashSum(jfrFile: Path, config: Config): String {
+    private fun hashSum(jfrFile: Path, config: Config): String {
         return hashSum(jfrFile) + hashSum(config)
     }
 
-    internal fun hashSum(file: Path): String {
+    private fun hashSum(file: Path): String {
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(file).use {
             val buffer = ByteArray(BUFFER_SIZE)
@@ -90,19 +90,12 @@ class FileCache(
         return Base64.getEncoder().encodeToString(digest.digest()).replace("/", "_")
     }
 
-    internal fun hashSum(config: Config): String {
-        return config.hashCode().toString()
+    private fun hashSum(config: Config): String {
+        return config.toString().hashCode().toString()
     }
-
-    fun setMaxSize(size: Long) {
-        maxSize.set(size)
-        ensureFreeSpace(0)
-    }
-
-    fun getMaxSize() = maxSize.get()
 
     companion object {
         const val BUFFER_SIZE = 1024
-        val DEFAULT_LOCATION = Files.createTempDirectory("jfrtofp")
+        val DEFAULT_LOCATION: Path = Files.createTempDirectory("jfrtofp")
     }
 }

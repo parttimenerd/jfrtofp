@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import MarkerSchemaProcessor
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
@@ -74,7 +73,6 @@ fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMa
             "jdk.JavaExceptionThrow" -> SampleLikeMarkerConfig(name, label, name)
             "jdk.JavaMonitorEnter" -> SampleLikeMarkerConfig(name, label, name)
             "jdk.JavaMonitorWait" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "timeout")
-            "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "weight")
             "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "weight")
             "jdk.ObjectAllocationInNewTLAB" -> SampleLikeMarkerConfig(
                 name,

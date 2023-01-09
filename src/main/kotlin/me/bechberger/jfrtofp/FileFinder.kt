@@ -5,8 +5,8 @@ import java.nio.file.Path
 
 class FileFinder {
 
-    val classToFileCache = mutableMapOf<String, MutableMap<String, Path>>()
-    val filesPerPackage = mutableMapOf<String, MutableList<Path>>()
+    private val classToFileCache = mutableMapOf<String, MutableMap<String, Path>>()
+    private val filesPerPackage = mutableMapOf<String, MutableList<Path>>()
 
     private fun addClass(className: String, packageName: String, path: Path) {
         classToFileCache.putIfAbsent(className, mutableMapOf())
@@ -26,13 +26,13 @@ class FileFinder {
                         filesPerPackage.getOrPut(packageLine) { mutableListOf() }.add(it.toPath())
                     }
                     if (line.matches("(public|static|private|protected| |\t)* class .*".toRegex())) {
-                        val className = line.substringAfter("class ").substringBefore(" ").trim()
-                        addClass(className, packageName, it.toPath())
+                        val name = line.substringAfter("class ").substringBefore(" ").trim()
+                        addClass(name, packageName, it.toPath())
                     }
                 }
             }
             if (it.isFile && it.extension == "kt") {
-                var packageName: String = ""
+                var packageName = ""
                 Files.readAllLines(it.toPath()).forEach { line ->
                     if (line.startsWith("package ")) {
                         packageName = line.substringAfter("package ").trim()

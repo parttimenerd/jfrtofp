@@ -12,6 +12,8 @@ import picocli.CommandLine.Parameters
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
+import me.bechberger.jfrtofp.processor.SimpleProcessor
+import kotlin.io.path.outputStream
 import kotlin.system.exitProcess
 
 @Command(
@@ -30,13 +32,15 @@ class Main : Callable<Int> {
     @Option(names = ["--mode", "-m"], description = ["fp, speedscope", "d3-flamegraph"])
     var mode = "fp"
 
-    @Mixin var config: ConfigMixin = ConfigMixin()
+    @Mixin
+    var config: ConfigMixin = ConfigMixin()
 
     override fun call(): Int {
         when (mode) {
             "fp" -> {
                 return runFP()
             }
+
             "speedscope", "d3-flamegraph" -> {
                 if (output != null && !output!!.toString().endsWith(".json")) {
                     println("Output file must end with .json")
@@ -55,6 +59,7 @@ class Main : Callable<Int> {
                 )
                 return 0
             }
+
             else -> {
                 println("Unknown mode $mode")
                 return 1
@@ -69,7 +74,15 @@ class Main : Callable<Int> {
         }
         val outputFile = output ?: Path.of(file.toString().replace(".jfr", ".json.gz"))
         val time = System.currentTimeMillis()
-        FirefoxProfileGenerator(file, config = config.toConfig()).generate().store(outputFile)
+        val processor = SimpleProcessor(config = config.toConfig(), file)
+
+        outputFile.outputStream().use {
+            if (outputFile.endsWith(".json")) {
+                processor.process(it)
+            } else {
+                processor.processZipped(it)
+            }
+        }
         System.err.println("Took ${System.currentTimeMillis() - time} ms")
         return 0
     }
