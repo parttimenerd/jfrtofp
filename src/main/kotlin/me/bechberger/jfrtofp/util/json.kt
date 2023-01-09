@@ -10,20 +10,19 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import me.bechberger.jfrtofp.types.Counter
 import me.bechberger.jfrtofp.types.Profile
+import me.bechberger.jfrtofp.types.ProfileMeta
+import me.bechberger.jfrtofp.types.Thread
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
-import java.io.Writer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
-import me.bechberger.jfrtofp.types.Counter
-import me.bechberger.jfrtofp.types.ProfileMeta
-import me.bechberger.jfrtofp.types.Thread
 import kotlin.io.path.extension
 
 // source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
@@ -215,11 +214,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         writeEndArray()
     }
 
-    fun <T: Number?> writeNumberArrayField(name: String, array: List<T>, last: Boolean = false) {
+    fun <T : Number?> writeNumberArrayField(name: String, array: List<T>, last: Boolean = false) {
         writeArrayField(name, array, { if (it == null) write("null") else write(it.toString()) }, last)
     }
 
-    fun <T: Boolean?> writeBooleanArrayField(name: String, array: List<T>, last: Boolean = false) {
+    fun <T : Boolean?> writeBooleanArrayField(name: String, array: List<T>, last: Boolean = false) {
         writeArrayField(name, array, { if (it == null) write("null") else write(it.toString()) }, last)
     }
 

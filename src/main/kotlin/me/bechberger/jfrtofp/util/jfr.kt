@@ -1,5 +1,6 @@
 package me.bechberger.jfrtofp.util
 
+import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedMethod
@@ -23,9 +24,11 @@ fun Map<RecordedThread, List<RecordedEvent>>.estimateIntervalInMicros() =
     values.filter { it.size > 2 }.mapNotNull { it.estimateIntervalInMicros() }.average().roundToLong()
 
 fun estimateIntervalInMillis(startTimesPerThread: Map<Long, List<Milliseconds>>): Milliseconds =
-    startTimesPerThread.values.filter { it.size > 2 }.map { it -> val sorted = it.sorted()
+    startTimesPerThread.values.filter { it.size > 2 }.map { it ->
+        val sorted = it.sorted()
         val diffs = sorted.zip(sorted.drop(1)).map { (a, b) -> b - a }.sorted()
-        diffs.average() }.average()
+        diffs.average()
+    }.average()
 
 val RecordedEvent.isExecutionSample
     get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")
@@ -133,3 +136,5 @@ object ByteCodeHelper {
         return formatByteCodeType(byteCodeName, omitPackages = false)
     }
 }
+
+fun EventType.hasField(name: String) = getField(name) != null

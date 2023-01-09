@@ -13,18 +13,9 @@ import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import java.nio.file.Path
 
-/** different types of memory properties that can be shown in the track time line view */
-enum class MemoryProperty(val propName: String, val description: String = propName) {
-    USED_PHYSICAL_MEMORY("Used physical memory") {
-        override fun isUsable(event: RecordedEvent): Boolean {
-            return event.eventType.name == "jdk.PhysicalMemory"
-        }
-
-        override fun getValue(event: RecordedEvent): Long {
-            return event.getLong("usedSize")
-        }
-    },
-    RESERVED_HEAP("Reserved heap") {
+/** different types of memory properties that can be shown in the track time line view, currently all have to be part of the GCHeapSummary event */
+enum class MemoryProperty(val propName: String, val description: String = propName, val actualProperty: String) {
+    RESERVED_HEAP("Reserved heap", actualProperty = "reservedSize") {
         override fun isUsable(event: RecordedEvent): Boolean {
             return event.eventType.name == "jdk.GCHeapSummary"
         }
@@ -33,7 +24,7 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
             return event.getValue<RecordedObject?>("heapSpace").getLong("reservedSize")
         }
     },
-    COMMITTED_HEAP("Committed heap") {
+    COMMITTED_HEAP("Committed heap", actualProperty = "committedSize") {
         override fun isUsable(event: RecordedEvent): Boolean {
             return event.eventType.name == "jdk.GCHeapSummary"
         }
@@ -42,7 +33,7 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
             return event.getValue<RecordedObject?>("heapSpace").getLong("committedSize")
         }
     },
-    USED_HEAP("Used heap") {
+    USED_HEAP("Used heap", actualProperty = "heapUsed") {
         override fun isUsable(event: RecordedEvent): Boolean {
             return event.eventType.name == "jdk.GCHeapSummary"
         }
@@ -98,7 +89,7 @@ class ConfigMixin {
 }
 
 data class Config(
-    val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_PHYSICAL_MEMORY),
+    val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP),
     /** time range of a given sample is at max 2.0 * interval */
     val maxIntervalFactor: Double = 2.0,
     val useNonProjectCategory: Boolean = true,

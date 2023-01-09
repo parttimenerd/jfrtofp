@@ -1,14 +1,15 @@
 package me.bechberger.jfrtofp.processor
 
 import MarkerSchemaProcessor
-import java.io.BufferedOutputStream
-import java.io.ByteArrayOutputStream
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
 import jdk.jfr.consumer.RecordingFile
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.encodeToStream
 import me.bechberger.jfrtofp.FileFinder
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.Counter
@@ -16,7 +17,9 @@ import me.bechberger.jfrtofp.types.CounterSamplesTable
 import me.bechberger.jfrtofp.types.ExtraProfileInfoEntry
 import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.NativeSymbolTable
-import me.bechberger.jfrtofp.types.Profile
+import me.bechberger.jfrtofp.types.PauseReason
+import me.bechberger.jfrtofp.types.PausedRange
+import me.bechberger.jfrtofp.types.Pid
 import me.bechberger.jfrtofp.types.ProfileMeta
 import me.bechberger.jfrtofp.types.SampleGroup
 import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
@@ -25,21 +28,23 @@ import me.bechberger.jfrtofp.types.TableColumnFormat
 import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
 import me.bechberger.jfrtofp.types.ThreadIndex
+import me.bechberger.jfrtofp.types.Tid
 import me.bechberger.jfrtofp.types.WeightType
+import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.encodeToJSONStream
-import me.bechberger.jfrtofp.util.encodeToZippedStream
-import me.bechberger.jfrtofp.util.estimateIntervalInMicros
+import me.bechberger.jfrtofp.util.estimateIntervalInMillis
 import me.bechberger.jfrtofp.util.isExecutionSample
 import me.bechberger.jfrtofp.util.isGCThread
 import me.bechberger.jfrtofp.util.isSystemThread
+import me.bechberger.jfrtofp.util.jsonFormat
 import me.bechberger.jfrtofp.util.realThread
 import me.bechberger.jfrtofp.util.sampledThread
 import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
+import java.io.ByteArrayOutputStream
 import java.io.OutputStream
-import java.lang.Thread.yield
 import java.nio.file.Path
 import java.time.Instant
 import java.util.NavigableMap
@@ -47,24 +52,9 @@ import java.util.Random
 import java.util.TreeMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.ReentrantLock
 import java.util.stream.LongStream
 import java.util.zip.GZIPOutputStream
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.encodeToStream
-import me.bechberger.jfrtofp.types.PauseReason
-import me.bechberger.jfrtofp.types.PausedRange
-import me.bechberger.jfrtofp.types.Pid
-import me.bechberger.jfrtofp.types.Tid
-import me.bechberger.jfrtofp.util.BasicJSONGenerator
-import me.bechberger.jfrtofp.util.estimateIntervalInMillis
-import me.bechberger.jfrtofp.util.jsonFormat
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
@@ -84,6 +74,7 @@ fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMa
             "jdk.JavaExceptionThrow" -> SampleLikeMarkerConfig(name, label, name)
             "jdk.JavaMonitorEnter" -> SampleLikeMarkerConfig(name, label, name)
             "jdk.JavaMonitorWait" -> SampleLikeMarkerConfig(name, label, name, WeightType.TRACING, "timeout")
+            "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "weight")
             "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(name, label, name, WeightType.BYTES, "weight")
             "jdk.ObjectAllocationInNewTLAB" -> SampleLikeMarkerConfig(
                 name,
@@ -113,9 +104,9 @@ fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMa
     ) + listOfNotNull(
         when (name) {
             "jdk.ObjectAllocationSample" -> SampleLikeMarkerConfig(
-                name,
-                "$label Classes",
                 "${name}_class",
+                "$label Classes",
+                name,
                 WeightType.BYTES,
                 "weight",
                 "_class"
@@ -135,9 +126,11 @@ abstract class EventProcessor {
 open class StoredThing(val data: ByteArray, val compressed: Boolean)
 
 class StoredThread(
-    data: ByteArray, compressed: Boolean,
+    data: ByteArray,
+    compressed: Boolean,
     val isParentProcessThread: Boolean,
-    val threadId: Long) : StoredThing(data, compressed)
+    val threadId: Long
+) : StoredThing(data, compressed)
 
 /** assumes that the events come in sorted order */
 class ThreadProcessor(
@@ -222,7 +215,9 @@ class ThreadProcessor(
                 "jdk.ThreadCPULoad" -> processThreadCPULoad(event)
                 "jdk.ThreadStart" -> threadStartEvent = event
                 "jdk.ThreadEnd" -> threadEndEvent = event
-                "jdk.ThreadPark" -> pausedRanges.add(PausedRange(event.startTime.toMillis(), event.endTime.toMillis(), PauseReason.PARKED))
+                "jdk.ThreadPark" -> pausedRanges.add(
+                    PausedRange(event.startTime.toMillis(), event.endTime.toMillis(), PauseReason.PARKED)
+                )
             }
         }
         eventCount++
@@ -299,7 +294,7 @@ class ThreadProcessor(
         json.writeFieldSep()
 
         json.writeFieldName("markers")
-        tables.rawMarkerTable.toRawMarkerTable()
+        tables.rawMarkerTable.write(json)
         json.writeFieldSep()
 
         json.writeFieldName("stackTable")
@@ -322,13 +317,20 @@ class ThreadProcessor(
         tables.resourceTable.write(json)
         json.writeFieldSep()
 
-        json.writeField("nativeSymbols", jsonFormat.encodeToString(NativeSymbolTable(listOf(), listOf(), listOf(), listOf())))
-        json.writeField("sampleLikeMarkersConfig", jsonFormat.encodeToString(generateSampleLikeMarkersConfig()), last = true)
+        json.writeField(
+            "nativeSymbols",
+            jsonFormat.encodeToString(NativeSymbolTable(listOf(), listOf(), listOf(), listOf()))
+        )
+        json.writeField(
+            "sampleLikeMarkersConfig",
+            jsonFormat.encodeToString(generateSampleLikeMarkersConfig()),
+            last = true
+        )
         json.writeEndObject()
     }
 
     override fun store(): StoredThread {
-        val storeFunc = if (isParentProcessThread) ::store else ::store2
+        val storeFunc = if (isParentProcessThread) ::store2 else ::store2
         val baos = ByteArrayOutputStream()
         val compress = eventCount >= COMPRESSION_THRESHOLD
         if (compress) {
@@ -352,7 +354,6 @@ class ThreadProcessor(
         private const val COMPRESSION_THRESHOLD = 100
     }
 }
-
 
 abstract class AbstractWorkerThread : Thread() {
     private val shouldStop = AtomicBoolean(false)
@@ -940,7 +941,7 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 
     fun processZipped(outputStream: OutputStream) {
         GZIPOutputStream(outputStream).use { zippedStream ->
-            process(BufferedOutputStream(zippedStream))
+            process(zippedStream)
         }
     }
 
@@ -961,7 +962,12 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
 
     @OptIn(ExperimentalSerializationApi::class)
-    fun writeProfile(outputStream: OutputStream, meta: ProfileMeta, threads: List<StoredThread>, counters: List<Counter>) {
+    fun writeProfile(
+        outputStream: OutputStream,
+        meta: ProfileMeta,
+        threads: List<StoredThread>,
+        counters: List<Counter>
+    ) {
         val json = BasicJSONGenerator(outputStream)
         json.writeStartObject()
         json.writeFieldName("libs")
@@ -1001,7 +1007,10 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
                 val processor: ThreadProcessor
                 val realThread = event.realThread
                 if (realThread != null) {
-                    if ((!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) || storedThreads.containsKey(realThread.id)) {
+                    if ((!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) || storedThreads.containsKey(
+                            realThread.id
+                        )
+                    ) {
                         continue
                     }
                     processor = threadToProcessor.getOrPut(realThread.id) {
@@ -1025,9 +1034,9 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
         }
         val threads = metaProcessor.sortedThreads().map {
             when (it) {
-                    is ParentThreadInfo -> parentThreadProcessor.store()
-                    is BasicThreadInfo -> storedThreads[it.id] ?: threadToProcessor[it.id]!!.store()
-                }
+                is ParentThreadInfo -> parentThreadProcessor.store()
+                is BasicThreadInfo -> storedThreads[it.id] ?: threadToProcessor[it.id]!!.store()
+            }
         }
         writeProfile(
             outputStream,
@@ -1061,7 +1070,13 @@ class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, 
     internal fun firstRun() {
         val parentProcessThreadProcessor = ThreadProcessor(config, true, -1, basicInformation, markerSchema)
         val parentProcessThreadWorker = AllEventWorkerThread(parentProcessThreadProcessor)
-        val mainThreadProcessor = ThreadProcessor(config, false, basicInformation.mainThreadId, basicInformation, markerSchema)
+        val mainThreadProcessor = ThreadProcessor(
+            config,
+            false,
+            basicInformation.mainThreadId,
+            basicInformation,
+            markerSchema
+        )
         val mainThreadWorker = AllEventWorkerThread(mainThreadProcessor)
 
         parentProcessThreadWorker.start()
@@ -1102,7 +1117,17 @@ class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, 
         val random = Random()
         threadIds.groupBy { random.nextInt(config.maxUsedThreads) }.map { (id, threads) ->
             while (workers.size <= id) {
-                val worker = SpecificThreadEventWorkerThread(threads.map { thread -> thread to ThreadProcessor(config, false, thread, basicInformation, markerSchema) }.toMap())
+                val worker = SpecificThreadEventWorkerThread(
+                    threads.map { thread ->
+                        thread to ThreadProcessor(
+                            config,
+                            false,
+                            thread,
+                            basicInformation,
+                            markerSchema
+                        )
+                    }.toMap()
+                )
                 workers.add(worker)
             }
         }
@@ -1136,8 +1161,10 @@ class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, 
 }
 
 fun main() {
-    val jfrFilePart = "flight_large"
+    val jfrFilePart = "small_profile"
     val processor = SimpleProcessor(Config(), Path.of("samples/$jfrFilePart.jfr"))
-    processor.processZipped(Path.of("samples/$jfrFilePart.json.gz").outputStream())
-    //processor.process(Path.of("samples/$jfrFilePart.json").outputStream())
+    Path.of("samples/$jfrFilePart.json.gz").outputStream().use {
+        processor.processZipped(it)
+    }
+    // processor.process(Path.of("samples/$jfrFilePart.json").outputStream())
 }

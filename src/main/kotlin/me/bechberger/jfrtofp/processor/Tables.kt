@@ -1,10 +1,7 @@
 package me.bechberger.jfrtofp.processor
 
-import Field
 import MarkerSchemaFieldMapping
 import MarkerSchemaProcessor
-import java.util.stream.Collectors
-import java.util.stream.IntStream
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
 import jdk.jfr.consumer.RecordedMethod
@@ -176,18 +173,21 @@ class RawMarkerTableWrapper(
         val endTime = event.endTime.toMillis()
         val phase = if (event.endTime == event.startTime) 0 else 1 // instant vs interval
         val category = CategoryE.fromName(event.eventType.categoryNames.first()).index
+        val startTimeInstant = event.startTime
         val data =
-            event.fields.filter { it.name in fieldMapping && event.getValue<Any>(it.name) != null }.map {
-                val fieldInfo: Field = fieldMapping.get(it.name)!!
-                fieldInfo.name to fieldInfo.type.convert(tables, event, it.name)
-                    .toJsonElement()
-            }.toMap(mutableMapOf())
+            fieldMapping.fields.map { field ->
+                field.getValue(event)?.let { value ->
+                    field.targetName to field.type.convert(tables, startTimeInstant, value).toJsonElement()
+                }
+            }.filterNotNull().toMap(mutableMapOf())
         data["type"] = event.eventType.name.toJsonElement()
         data["startTime"] = (event.startTime.toMillis() - basicInformation.startTimeMillis).toJsonElement()
         when (event.eventType.name) {
             "jdk.ObjectAllocationSample" -> {
-                data["_class"] = tables.stackTraceTable.getMiscStack(
-                    ByteCodeHelper.formatRecordedClass(event.getClass("objectClass"))
+                data["_class"] = mapOf(
+                    "stack" to tables.stackTraceTable.getMiscStack(
+                        ByteCodeHelper.formatRecordedClass(event.getClass("objectClass"))
+                    )
                 )
                     .toJsonElement()
             }

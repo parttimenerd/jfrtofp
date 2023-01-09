@@ -1,27 +1,30 @@
 package me.bechberger.jfrtofp.processor
 
+import jdk.incubator.vector.VectorOperators.LOG
 import jdk.jfr.ValueDescriptor
 import jdk.jfr.consumer.RecordedClass
-import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedObject
+import jdk.jfr.consumer.RecordedThread
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.MarkerFormatType
 import me.bechberger.jfrtofp.types.TableColumnFormat
 import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.util.ByteCodeHelper
-import me.bechberger.jfrtofp.util.toMillis
+import me.bechberger.jfrtofp.util.formatBytes
 import java.lang.reflect.Modifier
+import java.time.Instant
 import java.util.logging.Logger
 
 enum class MarkerType(
     val type: MarkerFormatType,
     val converter: (
         tables: Tables,
-        event: RecordedObject,
-        field: String
-    ) -> Any = { _, event, field ->
-        event.getValue<Any?>(field).toString()
+        /** only required for stack traces */
+        startTime: Instant?,
+        fieldValue: Any
+    ) -> Any = { _, _, fieldValue ->
+        fieldValue.toString()
     },
     val aliases: List<String> = emptyList(),
     /* unspecific type */
@@ -31,11 +34,11 @@ enum class MarkerType(
     BOOLEAN(BasicMarkerFormatType.STRING),
     BYTES(
         BasicMarkerFormatType.BYTES,
-        { _, event, field ->
-            when (val value = event.getValue<Any?>(field)) {
-                is Long -> value.toLong()
-                is Double -> value.toDouble()
-                else -> throw IllegalArgumentException("Cannot convert $value to bytes")
+        { _, _, fieldValue ->
+            when (fieldValue) {
+                is Long -> fieldValue.toLong()
+                is Double -> fieldValue.toDouble()
+                else -> throw IllegalArgumentException("Cannot convert $fieldValue to bytes")
             }
         },
         listOf(
@@ -47,7 +50,7 @@ enum class MarkerType(
     ),
     ADDRESS(
         BasicMarkerFormatType.STRING,
-        { _, event, field -> "0x" + event.getLong(field).toString(16) },
+        { _, _, fieldValue -> "0x" + (fieldValue as Long).toString(16) },
         listOf(
             "baseAddress",
             "topAddress",
@@ -59,65 +62,70 @@ enum class MarkerType(
     ),
     UBYTE(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
     UNSIGNED(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
-    INT(BasicMarkerFormatType.INTEGER, { _, event, field -> event.getLong(field) }),
+    INT(BasicMarkerFormatType.INTEGER, { _, _, fieldValue -> fieldValue as Int }),
     UINT(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
     USHORT(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
     LONG(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
     FLOAT(
         BasicMarkerFormatType.DECIMAL,
-        { _, event, field -> event.getDouble(field) },
+        { _, _, fieldValue -> fieldValue as Double },
         generic = true
     ),
     TABLE(
         TableMarkerFormat(columns = listOf(TableColumnFormat(), TableColumnFormat())),
-        { tables, event, field -> tableFormatter(tables, event, field) },
+        { tables, _, fieldValue ->
+            when (fieldValue) {
+                is RecordedObject -> tableFormatter(tables, fieldValue)
+                else -> fieldValue.toString()
+            }
+        },
         generic = true
     ),
     STRING(
         BasicMarkerFormatType.STRING,
-        { _, event, field -> event.getValue<Any?>(field).toString() },
+        { _, _, fieldValue -> fieldValue.toString() },
         generic = true
     ),
     ULONG(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) },
+        { _, _, fieldValue -> fieldValue as Long },
         generic = true
     ),
     DOUBLE(
         BasicMarkerFormatType.DECIMAL,
-        { _, event, field -> event.getDouble(field) },
+        { _, _, fieldValue -> fieldValue as Double },
         generic = true
     ),
     MILLIS(
         BasicMarkerFormatType.MILLISECONDS,
-        { tables, event, field -> event.getLong(field) - tables.basicInformation.startTimeMillis }
+        { tables, _, fieldValue -> (fieldValue as Long) - tables.basicInformation.startTimeMillis }
     ),
     TIMESTAMP(
         BasicMarkerFormatType.INTEGER,
-        { tables, event, field ->
+        { tables, _, fieldValue ->
             val startTimeMillis = tables.basicInformation.startTimeMillis
-            var fieldValue = event.getLong(field) * 1.0
-            while (fieldValue > startTimeMillis * 100) { // get it in the same ball park, works with timestamps but not with time spans
+            var fieldValue = (fieldValue as Long) * 1.0
+            while (fieldValue > startTimeMillis * 100) { // get it in the same ball-park, works with timestamps but not with time spans
                 fieldValue /= 1000
             }
             fieldValue - tables.basicInformation.startTimeMillis
@@ -125,18 +133,18 @@ enum class MarkerType(
     ),
     TIMESPAN(
         BasicMarkerFormatType.DURATION,
-        { _, event, field ->
-            event.getLong(field) / 1000_000.0
+        { _, _, fieldValue ->
+            (fieldValue as Long) / 1000_000.0
         }
     ),
 
-    NANOS(BasicMarkerFormatType.MILLISECONDS, { _, event, field -> event.getLong(field) / 1000.0 }),
+    NANOS(BasicMarkerFormatType.MILLISECONDS, { _, _, fieldValue -> (fieldValue as Long) / 1000.0 }),
     PERCENTAGE(
         BasicMarkerFormatType.PERCENTAGE,
-        { _, event, field -> event.getDouble(field) }
+        { _, _, fieldValue -> fieldValue as Double },
     ),
-    EVENT_THREAD(BasicMarkerFormatType.STRING, { _, event, field ->
-        event.getThread(field).let {
+    EVENT_THREAD(BasicMarkerFormatType.STRING, { _, _, fieldValue ->
+        (fieldValue as RecordedThread).let {
             "${it.javaName} (${it.id})"
         }
     }),
@@ -155,8 +163,8 @@ enum class MarkerType(
     ),
     GC_THRESHHOLD_UPDATER("updater", STRING), GC_WHEN("when", STRING), INFLATE_CAUSE("cause", STRING), MODIFIERS(
         BasicMarkerFormatType.STRING,
-        { _, event, field ->
-            val modInt = event.getInt(field)
+        { _, _, fieldValue ->
+            val modInt = fieldValue as Int
             val mods = mutableListOf<String>()
             if (modInt and Modifier.PUBLIC != 0) {
                 mods.add("public")
@@ -199,12 +207,12 @@ enum class MarkerType(
     ),
     EPOCH_MILLIS(
         BasicMarkerFormatType.MILLISECONDS,
-        { _, event, field -> event.getLong(field) }
+        { _, _, fieldValue -> fieldValue as Long }
     ),
-    BYTES_PER_SECOND(BasicMarkerFormatType.BYTES, { _, event, field -> event.getDouble(field) }),
+    BYTES_PER_SECOND(BasicMarkerFormatType.BYTES, { _, _, fieldValue -> fieldValue as Double }),
     BITS_PER_SECOND(
         BasicMarkerFormatType.BYTES,
-        { _, event, field -> event.getDouble(field) / 8 }
+        { _, _, fieldValue -> (fieldValue as Double) / 8 }
     ),
     METADATA_TYPE("type", STRING), METASPACE_OBJECT_TYPE("type", STRING), NARROW_OOP_MODE(
         "mode",
@@ -218,22 +226,22 @@ enum class MarkerType(
         "state",
         STRING
     ),
-    STACKTRACE(BasicMarkerFormatType.INTEGER, { tables, event, field ->
-        val st = (event as RecordedEvent).stackTrace
+    STACKTRACE(BasicMarkerFormatType.INTEGER, { tables, startTime, fieldValue ->
+        val st = fieldValue as jdk.jfr.consumer.RecordedStackTrace
         if (st.frames.isEmpty()) {
             0
         } else {
-            mutableMapOf<String, Any>(
+            mutableMapOf<String, Any?>(
                 "stack" to tables.stackTraceTable.getStack(st, tables.config.maxStackTraceFrames),
-                "time" to event.startTime.toMillis()
+                "time" to startTime
             )
         }
     }),
     SYMBOL("string", STRING), ThreadState("name", STRING), TICKS(
         BasicMarkerFormatType.INTEGER,
-        { _, event, field -> event.getLong(field) }
+        { _, _, fieldValue -> fieldValue as Long }
     ),
-    TICKSPAN(BasicMarkerFormatType.INTEGER, { _, event, field -> event.getLong(field) }), VMOperationType(
+    TICKSPAN(BasicMarkerFormatType.INTEGER, { _, _, fieldValue -> fieldValue as Long }), VMOperationType(
         "type",
         STRING
     ),
@@ -243,39 +251,40 @@ enum class MarkerType(
     ),
     PATH(
         BasicMarkerFormatType.FILE_PATH,
-        { _, event, field -> event.getString(field) }
+        { _, _, fieldValue -> fieldValue as String }
     ),
     CLASS(
         BasicMarkerFormatType.STRING,
-        { _, event, field -> ByteCodeHelper.formatRecordedClass(event.getValue<RecordedClass>(field)) }
+        { _, _, fieldValue -> ByteCodeHelper.formatRecordedClass(fieldValue as RecordedClass) }
     ),
     METHOD(
         BasicMarkerFormatType.STRING,
-        { _, event, field -> ByteCodeHelper.formatFunctionWithClass(event.getValue<RecordedMethod>(field)) }
+        { _, _, fieldValue -> ByteCodeHelper.formatFunctionWithClass(fieldValue as RecordedMethod) }
     );
 
     constructor(childField: String, type: MarkerType, generic: Boolean = false) : this(
         type.type,
-        { tables, event, field ->
-            type.converter(tables, event, field)
+        { tables, startTime, fieldValue ->
+            type.converter(tables, startTime, fieldValue)
         },
         generic = generic
     )
 
     fun convert(
         tables: Tables,
-        event: RecordedObject,
-        field: String
+        startTime: Instant?,
+        fieldValue: Any
     ): Any {
         return try {
-            converter(tables, event, field)
+            converter(tables, startTime, fieldValue)
         } catch (e: Exception) {
             LOG.throwing("MarkerType", "convert", e)
-            TABLE.converter(tables, event, field)
+            TABLE.converter(tables, startTime, fieldValue)
         }
     }
 
     companion object {
+        private val BYTE_FIELDS = setOf("committed", "reserved", "used", "gcThreshold", "unallocatedCapacity")
         private val map: MutableMap<String, MarkerType> = mutableMapOf()
         private val map2: MutableMap<Triple<String, String, String?>, MarkerType> = mutableMapOf()
 
@@ -292,7 +301,7 @@ enum class MarkerType(
                 if (field.label.lowercase().endsWith(" pointer")) {
                     return@computeIfAbsent ADDRESS
                 }
-                if (field.name.endsWith("Size")) {
+                if (field.name.endsWith("Size") || field.name in BYTE_FIELDS) {
                     return@computeIfAbsent BYTES
                 }
                 val contentTypeResult = field.contentType?.let {
@@ -313,8 +322,7 @@ enum class MarkerType(
 
         fun tableFormatter(
             tables: Tables,
-            event: RecordedObject,
-            field: String
+            value: RecordedObject
         ): Any {
             // idea: transform arbitrary objects into tables:
             // --------
@@ -345,15 +353,25 @@ enum class MarkerType(
                         }
                         fields.add(
                             path to (
-                                type.converter(tables, base, field.name)
-                                ).toString()
+                                base.getValue<Any>(field.name)?.let {
+                                    if (type == BYTES) {
+                                        (it as Long).formatBytes()
+                                    } else {
+                                        type.convert(tables, null, it).toString()
+                                    }
+                                } ?: ""
+                                )
                         )
                     }
                 }
-                addField(emptyList(), event.fields.find { it.name == field }!!, event)
+
+                for (field in value.fields) {
+                    addField(listOf(fieldName(field)), field, value)
+                }
+
                 return fields.map { (path, value) -> listOf(path.joinToString("."), value) }.toList()
             } catch (e: Exception) {
-                println("Error getting value for field=$field $event: ${e.message}")
+                println("Error getting value for $value: ${e.message}")
                 throw e
             }
         }

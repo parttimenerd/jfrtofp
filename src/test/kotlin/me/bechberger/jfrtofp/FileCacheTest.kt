@@ -1,13 +1,13 @@
 package me.bechberger.jfrtofp
 
+import me.bechberger.jfrtofp.processor.Config
+import me.bechberger.jfrtofp.util.encodeToZippedStream
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
-import me.bechberger.jfrtofp.processor.Config
-import me.bechberger.jfrtofp.util.encodeToZippedStream
 
 internal class FileCacheTest {
 
