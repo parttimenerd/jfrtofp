@@ -297,8 +297,8 @@ class FuncTableWrapper(val tables: Tables) {
         return map.computeIfAbsent(func) {
             val type = func.type
             val url =
-                tables.classToUrl(type.className.split("$").last(), type.pkg) ?: "http://localhost/files?className=${type.className}&pkg=${type.pkg}"
-            sourceUrls.add(url.let { tables.getString(url) })
+                tables.classToUrl(type.className.split("$").last(), type.pkg)
+            sourceUrls.add(url?.let { tables.getString(it) })
             names.add(tables.getString(ByteCodeHelper.formatFunctionWithClass(func)))
             isJss.add(isJava)
             relevantForJss.add(true)
