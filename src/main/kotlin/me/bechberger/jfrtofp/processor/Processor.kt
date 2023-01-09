@@ -511,10 +511,10 @@ data class BasicInformation(
 
     fun classToUrl(packageName: String, className: String) = fileFinder?.findFile(packageName, className)?.let { file ->
         config.sourceUrl?.let {
-            config.sourcePath!!.let { sourcePath ->
+            config.sourcePath?.let { sourcePath ->
                 val relativePath = file.relativeTo(sourcePath)
                 config.sourceUrl + "/" + relativePath
-            }
+            } ?: it
         }
     }
 
