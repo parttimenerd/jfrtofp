@@ -2,6 +2,7 @@ package me.bechberger.jfrtofp
 
 import java.nio.file.Files
 import java.nio.file.Path
+import me.bechberger.jfrtofp.util.fileExtension
 
 class FileFinder {
 
@@ -16,7 +17,7 @@ class FileFinder {
     fun addFolder(folder: Path) {
         val folderFile = folder.toFile()
         folder.toFile().walkTopDown().forEach {
-            if (it.isFile && it.extension == "java") {
+            if (it.isFile && it.toPath().fileExtension == "java") {
                 val packageName = it.toRelativeString(folderFile).substringBeforeLast("/")
                 val className = it.toRelativeString(folderFile).substringAfterLast("/").substringBeforeLast(".")
                 addClass(className, packageName, it.toPath())
@@ -31,7 +32,7 @@ class FileFinder {
                     }
                 }
             }
-            if (it.isFile && it.extension == "kt") {
+            if (it.isFile && it.toPath().fileExtension == "kt") {
                 var packageName = ""
                 Files.readAllLines(it.toPath()).forEach { line ->
                     if (line.startsWith("package ")) {

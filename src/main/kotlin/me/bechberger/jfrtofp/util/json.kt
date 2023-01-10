@@ -23,8 +23,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
-import kotlin.io.path.extension
-
 // source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
 fun Collection<*>.toJsonElement(): JsonElement = JsonArray(mapNotNull { it.toJsonElement() })
 
@@ -101,10 +99,10 @@ fun Profile.encodeToZippedStream(): InputStream {
 
 fun Profile.store(path: Path) {
     Files.newOutputStream(path).use { stream ->
-        when (path.extension) {
+        when (path.fileExtension) {
             "json" -> encodeToJSONStream(stream)
             "gz" -> encodeToZippedStream(stream)
-            else -> throw IllegalArgumentException("Unknown file extension: ${path.extension}")
+            else -> throw IllegalArgumentException("Unknown file extension: ${path.fileExtension}")
         }
     }
 }

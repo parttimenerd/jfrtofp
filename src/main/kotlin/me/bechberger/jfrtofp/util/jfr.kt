@@ -1,5 +1,6 @@
 package me.bechberger.jfrtofp.util
 
+import java.nio.file.Path
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -138,3 +139,6 @@ object ByteCodeHelper {
 }
 
 fun EventType.hasField(name: String) = getField(name) != null
+
+val Path.fileExtension: String
+    get() = fileName.toString().substringAfterLast('.', "")

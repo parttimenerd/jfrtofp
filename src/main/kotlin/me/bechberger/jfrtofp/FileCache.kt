@@ -8,7 +8,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.io.path.extension
+import me.bechberger.jfrtofp.util.fileExtension
 import kotlin.math.max
 import kotlin.streams.asSequence
 
@@ -49,10 +49,10 @@ class FileCache(
     private fun create(jfrFile: Path, config: Config, filePath: Path) {
         Files.newOutputStream(filePath).use { baas ->
             val processor = SimpleProcessor(config, jfrFile)
-            when (filePath.extension) {
+            when (filePath.fileExtension) {
                 "json" -> processor.process(baas)
                 "gz" -> processor.processZipped(baas)
-                else -> throw IllegalArgumentException("Unknown file extension: ${filePath.extension}")
+                else -> throw IllegalArgumentException("Unknown file extension: ${filePath.fileExtension}")
             }
             ensureFreeSpace(0)
         }
