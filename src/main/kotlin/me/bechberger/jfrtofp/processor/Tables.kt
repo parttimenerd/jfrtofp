@@ -96,6 +96,7 @@ data class Tables(
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor,
     val classToUrl: (String, String) -> String? = { _, _ -> null },
+    val defaultUrl: String? = null
 ) {
     val stringTable: StringTableWrapper = StringTableWrapper()
     val resourceTable: ResourceTableWrapper = ResourceTableWrapper(this)
@@ -316,6 +317,7 @@ class FuncTableWrapper(val tables: Tables) {
             relevantForJss.add(true)
             resourcess.add(-1)
             fileNames.add(null)
+            sourceUrls.add(tables.defaultUrl?.let { tables.getString(it) })
             index
         }
     }

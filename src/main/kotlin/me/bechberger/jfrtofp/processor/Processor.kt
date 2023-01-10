@@ -147,7 +147,13 @@ class ThreadProcessor(
 
     private val eventTypes: MutableSet<EventType> = mutableSetOf()
 
-    private val tables: Tables = Tables(config, basicInformation, markerSchema, basicInformation::classToUrl)
+    private val tables: Tables = Tables(
+        config,
+        basicInformation,
+        markerSchema,
+        basicInformation::classToUrl,
+        config.sourceUrl
+    )
 
     private val samplesTable: SamplesTableWrapper = SamplesTableWrapper(tables)
 
@@ -516,7 +522,7 @@ data class BasicInformation(
                 config.sourceUrl + "/" + relativePath
             } ?: it
         }
-    }
+    } ?: config.sourceUrl
 
     companion object {
         /** read the first few events of the file to get the basic information */
