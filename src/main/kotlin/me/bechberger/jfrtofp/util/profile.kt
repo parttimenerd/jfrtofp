@@ -14,6 +14,10 @@ class StringTableWrapper {
         }
     }
 
+    operator fun get(index: IndexIntoStringTable): String {
+        return strings[index]
+    }
+
     fun toStringTable(): StringTable = strings
 
     val size: Int

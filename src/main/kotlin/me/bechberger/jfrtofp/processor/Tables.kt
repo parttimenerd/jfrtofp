@@ -296,16 +296,17 @@ class FuncTableWrapper(val tables: Tables) {
 
     internal fun getFunction(func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
         return map.computeIfAbsent(func) {
+            val index = names.size
             val type = func.type
             val url =
-                tables.classToUrl(type.className.split("$").last(), type.pkg)
+                tables.classToUrl(type.pkg, type.className.split("$").last())
             sourceUrls.add(url?.let { tables.getString(it) })
             names.add(tables.getString(ByteCodeHelper.formatFunctionWithClass(func)))
             isJss.add(isJava)
             relevantForJss.add(true)
             resourcess.add(tables.getResource(func, isJava))
             fileNames.add(null)
-            map.size
+            index
         }
     }
 
