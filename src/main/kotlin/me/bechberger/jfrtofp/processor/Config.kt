@@ -66,15 +66,14 @@ class ConfigMixin {
     @CommandLine.Option(names = ["--max-misc-samples"], description = ["Maximum number of misc samples per thread"])
     var maxMiscSamplesPerThread: Int = -1
 
-    @CommandLine.Option(names = ["--source"], description = ["SOURCE|SOURCE_URL"])
-    var source: String = ""
+    @CommandLine.Option(names = ["--source-url"], description = ["Source url to use in the profile for Firefox Profiler"])
+    var sourceUrl: String? = null
 
     fun toConfig() = Config(
         nonProjectPackagePrefixes = nonProjectPackagePrefixes,
         maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
         maxMiscSamplesPerThread = maxMiscSamplesPerThread,
-        sourcePath = if (source.isNotEmpty()) Path.of(source.split("|", limit = 2)[0]) else null,
-        sourceUrl = if (source.isNotEmpty()) source.split("|", limit = 2)[1] else null
+        sourceUrl = sourceUrl
     )
 
     companion object {
