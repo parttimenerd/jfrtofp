@@ -109,7 +109,7 @@ data class Tables(
 
     fun getResource(func: RecordedMethod, isJava: Boolean) = resourceTable.getResource(func, isJava)
 
-    fun getFunction(func: RecordedMethod, isJava: Boolean) = funcTable.getFunction(func, isJava)
+    fun getFunction(func: RecordedMethod, isJava: Boolean, lineNumber: Int) = funcTable.getFunction(func, isJava, lineNumber)
 
     fun getMiscFunction(name: String, isNative: Boolean) = funcTable.getMiscFunction(name, isNative)
 
@@ -273,6 +273,7 @@ class FuncTableWrapper(val tables: Tables) {
 
     private val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
+    private val lineNumbers = mutableListOf<Int>()
     private val isJss = mutableListOf<Boolean>()
     private val relevantForJss = mutableListOf<Boolean>()
     private val resourcess = mutableListOf<IndexIntoResourceTable>() // -1 if not present
@@ -294,7 +295,7 @@ class FuncTableWrapper(val tables: Tables) {
     private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
-    internal fun getFunction(func: RecordedMethod, isJava: Boolean): IndexIntoFuncTable {
+    internal fun getFunction(func: RecordedMethod, isJava: Boolean, lineNumber: Int): IndexIntoFuncTable {
         return map.computeIfAbsent(func) {
             val index = names.size
             val type = func.type
@@ -306,6 +307,7 @@ class FuncTableWrapper(val tables: Tables) {
             relevantForJss.add(true)
             resourcess.add(tables.getResource(func, isJava))
             fileNames.add(null)
+            lineNumbers.add(lineNumber)
             index
         }
     }
@@ -329,7 +331,8 @@ class FuncTableWrapper(val tables: Tables) {
         relevantForJS = relevantForJss,
         resource = resourcess,
         fileName = fileNames,
-        sourceUrl = sourceUrls
+        sourceUrl = sourceUrls,
+        lineNumber = lineNumbers
     )
 
     fun write(json: BasicJSONGenerator) {
@@ -341,7 +344,7 @@ class FuncTableWrapper(val tables: Tables) {
         json.writeNumberArrayField("fileName", fileNames)
         json.writeNumberArrayField("sourceUrl", sourceUrls)
         json.writeSimpleField("length", size)
-        json.writeNullArrayField("lineNumber", size)
+        json.writeNumberArrayField("lineNumber", lineNumbers)
         json.writeNullArrayField("columnNumber", size, last = true)
         json.writeEndObject()
     }
@@ -362,7 +365,7 @@ class FrameTableWrapper(val tables: Tables) {
     internal fun getFrame(
         frame: RecordedFrame
     ): IndexIntoFrameTable {
-        val func = tables.getFunction(frame.method, frame.isJavaFrame)
+        val func = tables.getFunction(frame.method, frame.isJavaFrame, frame.lineNumber)
         val line = if (frame.lineNumber == -1) null else frame.lineNumber
 
         return map.computeIfAbsent(func to line) {

@@ -522,7 +522,7 @@ data class BasicInformation(
                 config.sourceUrl + "/" + relativePath
             } ?: it
         }
-    } ?: config.sourceUrl
+    } ?: config.sourceUrl?.let { it + "/" + packageName + "." + className + (if ("Kt" in className) ".kt" else ".java") }
 
     companion object {
         /** read the first few events of the file to get the basic information */
@@ -548,9 +548,9 @@ data class BasicInformation(
             val systemProcesses: MutableList<RecordedEvent> = mutableListOf()
             RecordingFile(jfrFile).use { file ->
                 while (file.hasMoreEvents() && (
-                    mainThreadId == null || cpuInformation == null || jvmInformation == null || osInformation == null ||
-                        sampledStartTimesCount < maxRecordedEventsConsideredForIntervalEstimation
-                    )
+                        mainThreadId == null || cpuInformation == null || jvmInformation == null || osInformation == null ||
+                            sampledStartTimesCount < maxRecordedEventsConsideredForIntervalEstimation
+                        )
                 ) {
                     val event = file.readEvent()
                     if (event.thread != null && event.thread.javaName == "main") {
@@ -909,9 +909,9 @@ internal class MetaProcessor(
             markerSchema = markerSchema.toMarkerSchemaList(),
             arguments = basicInformation.jvmInformation?.let {
                 "jvm=${it.getString("jvmArguments")}  --  java=${
-                it.getString(
-                    "javaArguments"
-                )
+                    it.getString(
+                        "javaArguments"
+                    )
                 }"
             } ?: "<unknown>",
             physicalCPUs = basicInformation.cpuInformation?.getInt("cores"),
