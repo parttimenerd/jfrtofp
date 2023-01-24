@@ -13,6 +13,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
 import me.bechberger.jfrtofp.processor.SimpleProcessor
+import kotlin.io.path.name
 import kotlin.io.path.outputStream
 import kotlin.system.exitProcess
 
@@ -77,7 +78,7 @@ class Main : Callable<Int> {
         val processor = SimpleProcessor(config = config.toConfig(), file)
 
         outputFile.outputStream().use {
-            if (outputFile.endsWith(".json")) {
+            if (outputFile.name.endsWith(".json")) {
                 processor.process(it)
             } else {
                 processor.processZipped(it)
