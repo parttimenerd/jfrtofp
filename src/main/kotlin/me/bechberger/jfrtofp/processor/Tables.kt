@@ -126,7 +126,7 @@ data class Tables(
 
     fun getStack(
         stackTrace: RecordedStackTrace
-    ) = getStack(stackTrace, config.maxStackTraceFrames)
+    ) = getStack(stackTrace, Int.MAX_VALUE)
 
     fun getStack(
         stackTrace: RecordedStackTrace,

@@ -104,7 +104,6 @@ data class Config(
     /** use native allocations view to show per allocated class allocations */
     val useNativeAllocViewForAllocations: Boolean = true,
     /** maximum number of stack frames */
-    val maxStackTraceFrames: Int = Int.MAX_VALUE,
     val maxThreads: Int = Int.MAX_VALUE,
     val omitEventThreadProperty: Boolean = true,
     val maxExecutionSamplesPerThread: Int = -1,
