@@ -289,7 +289,7 @@ class FuncTableWrapper(val tables: Tables) {
             val index = names.size
             val type = func.type
             val url =
-                tables.classToUrl(type.pkg, type.className.split("$").last())
+                tables.classToUrl(type.pkg, type.className)
             sourceUrls.add(url?.let { tables.getString(it) })
             names.add(tables.getString(ByteCodeHelper.formatFunctionWithClass(func)))
             isJss.add(isJava)
