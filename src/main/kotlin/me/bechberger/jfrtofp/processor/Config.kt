@@ -98,8 +98,7 @@ data class Config(
     /** an objectsample weigth will be associated with the nearest stack trace
      * or the common prefix stack trace of the two nearest if the minimal time distance is > 0.25 * interval */
     val enableAllocations: Boolean = true,
-    /** use native allocations view to show per allocated class allocations */
-    val useNativeAllocViewForAllocations: Boolean = true,
+
     /** maximum number of stack frames */
     val maxThreads: Int = Int.MAX_VALUE,
     val omitEventThreadProperty: Boolean = true,
