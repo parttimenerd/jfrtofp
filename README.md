@@ -43,7 +43,7 @@ But this is considered experimental and not the main focus of this project.
 ## Usage as a Library
 ```groovy
 dependencies {
-    implementation 'com.github.parttimenerd:jfrtofp-server:main-SNAPSHOT'
+    implementation 'com.github.parttimenerd:jfrtofp:0.0.2-SNAPSHOT'
 }
 
 repositories {
