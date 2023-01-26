@@ -206,8 +206,10 @@ class ThreadProcessor(
         }
         end = event.endTime
         eventTypes.add(event.eventType)
-        if (thread == null && event.thread != null) {
-            thread = event.thread
+        if (thread == null) {
+            event.realThread?.let {
+                thread = it
+            }
         }
         if (event.isExecutionSample) {
             processExecutionSample(event)
@@ -553,8 +555,10 @@ data class BasicInformation(
                         )
                 ) {
                     val event = file.readEvent()
-                    if (event.thread != null && event.thread.javaName == "main") {
-                        mainThreadId = event.thread.id
+                    event.realThread?.let {
+                        if (it.javaName == "main") {
+                            mainThreadId = it.id
+                        }
                     }
                     if (jvmInformation == null && event.eventType.name == "jdk.JVMInformation") {
                         startTime = event.getInstant("jvmStartTime")
