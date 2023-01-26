@@ -118,6 +118,8 @@ data class Config(
     val sampleMarkerConfigForType: (EventType) -> List<SampleLikeMarkerConfig> = { emptyList() },
     val useFileFinder: Boolean = false,
     val ignoredEvents: Set<String> = DEFAULT_IGNORED_EVENTS.toSet(),
+    /** minimum number of samples or markers a event has to have */
+    val minRequiredItemsPerThread: Int = DEFAULT_MIN_ITEMS_PER_THREAD,
 ) {
     companion object {
         val DEFAULT_ADDED_MEMORY_PROPERTIES = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP)
@@ -146,5 +148,6 @@ data class Config(
             "jdk.ModuleExport",
             "jdk.ModuleRequire"
         )
+        const val DEFAULT_MIN_ITEMS_PER_THREAD = 3
     }
 }

@@ -1,5 +1,17 @@
 package me.bechberger.jfrtofp.processor
 
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
+import java.nio.file.Path
+import java.time.Instant
+import java.util.NavigableMap
+import java.util.Random
+import java.util.TreeMap
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.stream.LongStream
+import java.util.zip.GZIPOutputStream
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
@@ -42,18 +54,6 @@ import me.bechberger.jfrtofp.util.sampledThread
 import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
-import java.io.ByteArrayOutputStream
-import java.io.OutputStream
-import java.nio.file.Path
-import java.time.Instant
-import java.util.NavigableMap
-import java.util.Random
-import java.util.TreeMap
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.stream.LongStream
-import java.util.zip.GZIPOutputStream
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
@@ -147,6 +147,11 @@ class ThreadProcessor(
 
     private val eventTypes: MutableSet<EventType> = mutableSetOf()
 
+    private var _items = 0
+
+    val items: Int
+        get() = _items
+
     private val tables: Tables = Tables(
         config,
         basicInformation,
@@ -213,8 +218,10 @@ class ThreadProcessor(
         }
         if (event.isExecutionSample) {
             processExecutionSample(event)
+            _items++
         } else {
             if (config.enableMarkers) {
+                _items++
                 tables.rawMarkerTable.processEvent(event)
             }
             when (event.eventType.name) {
@@ -625,7 +632,7 @@ class BasicThreadInfo(
     val recordedThread: RecordedThread,
     val isMainThread: Boolean,
     internal var executionSampleCount: Int = 0,
-    internal val otherSampleCount: Int = 0
+    internal var otherSampleCount: Int = 0
 ) : AbstractThreadInfo(startTime), Comparable<BasicThreadInfo> {
     val id = recordedThread.id
     val name = recordedThread.javaName
@@ -634,6 +641,9 @@ class BasicThreadInfo(
 
     val hasExecutionSamples
         get() = executionSampleCount > 0
+
+    val combinedSampleCount
+        get() = executionSampleCount + otherSampleCount
 
     val score: Long
         get() = if (isMainThread) Long.MAX_VALUE else executionSampleCount * 2L + otherSampleCount
@@ -799,6 +809,8 @@ internal class MetaProcessor(
             }
             if (event.isExecutionSample) {
                 threadInfo.executionSampleCount++
+            } else {
+                threadInfo.otherSampleCount++
             }
         }
         val time = if (event.hasField("endTime")) {
@@ -875,12 +887,14 @@ internal class MetaProcessor(
             true
         } else if (threadInfo.isGCThread) {
             config.includeGCThreads
-        } else {
+        } else if (threadInfo.combinedSampleCount >= config.minRequiredItemsPerThread) {
             if (!threadInfo.isSystemThread) {
                 threadInfo.hasExecutionSamples
             } else {
                 true
             }
+        } else {
+            false
         }
 
     fun sortedThreads(): List<AbstractThreadInfo> {
