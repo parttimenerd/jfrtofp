@@ -281,17 +281,6 @@ class FuncTableWrapper(val tables: Tables) {
 
     // This is the optional information on the url of the source file
     // that this function can be seen in specifically.
-    // Prefixing the URL with `post|` signifies that the URL should
-    // be called with a POST request and the response discarded (the request
-    // includes `name`, `file`, `line` and `column` information if present).
-    // `post|` URLs can have another format: `post|url|alternative` where
-    // the alternative URL is used if the origin of the url does not have
-    // the same origin as the profile viewer. This allows to supply a public
-    // fallback URL for local profile URLs.
-    // These POST requests are used by imported profiles to trigger events
-    // outside of the profiler.
-    // Urls may currently only start with `https://raw.githubusercontent.com/` or
-    // `http://localhost`.
     private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 

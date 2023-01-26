@@ -953,7 +953,6 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
         const val MAX_JFR_SIZE_FOR_SINGLE_THREAD = 5_000_000L
 
         fun create(config: Config, jfrFile: Path): Processor {
-            val size = jfrFile.toFile().length()
             return SimpleProcessor(config, jfrFile)
         }
     }
