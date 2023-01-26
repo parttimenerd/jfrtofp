@@ -1,9 +1,9 @@
 package me.bechberger.jfrtofp.processor
 
+import java.nio.file.Path
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
-import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedObject
 import me.bechberger.jfrtofp.Main
 import me.bechberger.jfrtofp.types.Milliseconds
@@ -11,7 +11,6 @@ import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.util.toMillis
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
-import java.nio.file.Path
 
 /** different types of memory properties that can be shown in the track time line view, currently all have to be part of the GCHeapSummary event */
 enum class MemoryProperty(val propName: String, val description: String = propName, val actualProperty: String) {
@@ -57,8 +56,7 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
 @CommandLine.Command
 class ConfigMixin {
     @CommandLine.Option(names = ["-n", "--non-project"], description = ["non project package prefixes"])
-    var nonProjectPackagePrefixes: List<String> =
-        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.")
+    var nonProjectPackagePrefixes: List<String> = listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.")
 
     @CommandLine.Option(names = ["--max-exec-samples"], description = ["Maximum number of exec samples per thread"])
     var maxExecutionSamplesPerThread: Int = -1
@@ -88,12 +86,11 @@ class ConfigMixin {
 }
 
 data class Config(
-    val addedMemoryProperties: List<MemoryProperty> = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP),
+    val addedMemoryProperties: List<MemoryProperty> = DEFAULT_ADDED_MEMORY_PROPERTIES,
     /** time range of a given sample is at max 2.0 * interval */
     val maxIntervalFactor: Double = 2.0,
     val useNonProjectCategory: Boolean = true,
-    val nonProjectPackagePrefixes: List<String> =
-        listOf("java.", "javax.", "kotlin.", "jdk.", "com.google.", "org.apache.", "org.spring.", "sun.", "scala."),
+    val nonProjectPackagePrefixes: List<String> = DEFAULT_NON_PROJECT_PACKAGE_PREFIXES,
     val isNonProjectType: (RecordedClass) -> Boolean = { k ->
         nonProjectPackagePrefixes.any { k.name.startsWith(it) }
     },
@@ -108,9 +105,9 @@ data class Config(
     val omitEventThreadProperty: Boolean = true,
     val maxExecutionSamplesPerThread: Int = -1,
     val maxMiscSamplesPerThread: Int = -1,
-    val initialVisibleThreads: Int = 10,
+    val initialVisibleThreads: Int = DEFAULT_INITIAL_VISIBLE_THREADS,
     val selectProcessTrackInitially: Boolean = true,
-    val initialSelectedThreads: Int = 10,
+    val initialSelectedThreads: Int = DEFAULT_INITIAL_SELECTED_THREADS,
     val sourcePath: Path? = null,
     var sourceUrl: String? = null,
     val maxUsedThreads: Int = Runtime.getRuntime().availableProcessors(),
@@ -121,21 +118,34 @@ data class Config(
     val includeSystemProcesses: Boolean = false,
     val sampleMarkerConfigForType: (EventType) -> List<SampleLikeMarkerConfig> = { emptyList() },
     val useFileFinder: Boolean = false,
-    val ignoredEvents: Set<String> = setOf(
-        "jdk.ActiveSetting",
-        "jdk.ActiveRecording",
-        "jdk.BooleanFlag",
-        "jdk.IntFlag",
-        "jdk.DoubleFlag",
-        "jdk.LongFlag",
-        "jdk.NativeLibrary",
-        "jdk.StringFlag",
-        "jdk.UnsignedIntFlag",
-        "jdk.UnsignedLongFlag",
-        "jdk.InitialSystemProperty",
-        "jdk.InitialEnvironmentVariable",
-        "jdk.SystemProcess",
-        "jdk.ModuleExport",
-        "jdk.ModuleRequire"
-    ),
-)
+    val ignoredEvents: Set<String> = DEFAULT_IGNORED_EVENTS.toSet(),
+) {
+    companion object {
+        val DEFAULT_ADDED_MEMORY_PROPERTIES = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP)
+        const val DEFAULT_INITIAL_VISIBLE_THREADS = 10
+        const val DEFAULT_INITIAL_SELECTED_THREADS = 10
+        val DEFAULT_NON_PROJECT_PACKAGE_PREFIXES =
+            listOf(
+                "java.", "javax.", "kotlin.", "jdk.",
+                "com.google.", "org.apache.", "org.spring.",
+                "sun.", "scala."
+            )
+        val DEFAULT_IGNORED_EVENTS = listOf(
+            "jdk.ActiveSetting",
+            "jdk.ActiveRecording",
+            "jdk.BooleanFlag",
+            "jdk.IntFlag",
+            "jdk.DoubleFlag",
+            "jdk.LongFlag",
+            "jdk.NativeLibrary",
+            "jdk.StringFlag",
+            "jdk.UnsignedIntFlag",
+            "jdk.UnsignedLongFlag",
+            "jdk.InitialSystemProperty",
+            "jdk.InitialEnvironmentVariable",
+            "jdk.SystemProcess",
+            "jdk.ModuleExport",
+            "jdk.ModuleRequire"
+        )
+    }
+}
