@@ -492,7 +492,7 @@ data class BasicInformation(
     val startTimeMillis = startTime.toMillis()
     val intervalMillis = interval.toEpochMilli()
     val intervalNanos = interval.toNanos()
-    val pid = jvmInformation?.getLong("pid") ?: -1
+    val pid = try { jvmInformation?.getLong("pid") ?: -1 } catch (_:IllegalArgumentException) {-1}
     val fileFinder = if (config.useFileFinder) {
         FileFinder().also { finder ->
             config.sourcePath?.let { sourcePath -> finder.addFolder(sourcePath) }
