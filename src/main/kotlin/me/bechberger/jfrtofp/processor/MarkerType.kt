@@ -289,7 +289,7 @@ enum class MarkerType(
 
         fun fromName(field: ValueDescriptor): MarkerType {
             return map2.computeIfAbsent(Triple(field.typeName, field.name, field.contentType)) {
-                if (field.label.lowercase().endsWith(" pointer")) {
+                if ((field.label ?: field.name).lowercase().endsWith(" pointer")) {
                     return@computeIfAbsent ADDRESS
                 }
                 if (field.name.endsWith("Size") || field.name in BYTE_FIELDS) {
