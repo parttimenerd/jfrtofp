@@ -1,5 +1,5 @@
 # jfrtofp
-[![Maven Package](https://jitpack.io/v/parttimenerd/jfrtofp.svg)](https://jitpack.io/#parttimenerd/jfrtofp)
+![Sonatype Nexus (Snapshots)](https://img.shields.io/nexus/s/me.bechberger/jfrtofp?server=https%3A%2F%2Fs01.oss.sonatype.org)
 
 JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
 
