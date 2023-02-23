@@ -539,7 +539,7 @@ data class BasicInformation(
             jfrFile: Path,
             config: Config,
             maxEventsConsidered: Int = 100000,
-            maxRecordedEventsConsideredForIntervalEstimation: Int = 1000
+            maxRecordedEventsConsideredForIntervalEstimation: Int = 10000
         ): BasicInformation {
             // assumption: system properties, ... come before the first ExecutionSample event
             var mainThreadId: Long? = null
@@ -562,6 +562,9 @@ data class BasicInformation(
                         )
                 ) {
                     val event = file.readEvent()
+                    if (event.realThread?.javaName == null) {
+                        continue
+                    }
                     event.realThread?.let {
                         if (it.javaName == "main") {
                             mainThreadId = it.id
