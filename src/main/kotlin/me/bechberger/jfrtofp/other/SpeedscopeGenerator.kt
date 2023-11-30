@@ -4,9 +4,10 @@ import jdk.jfr.consumer.RecordedMethod
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import me.bechberger.jfrtofp.util.estimateIntervalInMicros
 import java.nio.file.Path
+import me.bechberger.jfrtofp.util.estimateMinInterval
 import kotlin.math.max
+import kotlin.math.roundToLong
 
 internal object Speedscope {
     @Serializable
@@ -92,7 +93,7 @@ class SpeedscopeGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
         val (samples, starts, _) = executionSamplesWithStartAndEnd()
         val ovStart = starts.values.min()
         val perThread = samples.perThread()
-        val estimatedIntervalInMicros = perThread.estimateIntervalInMicros()
+        val estimatedIntervalInMicros = (perThread.estimateMinInterval() * 1000).roundToLong()
 
         val frames = mutableListOf<Speedscope.Frame>()
         val framesToIndex = mutableMapOf<HashedMethod, Int>()

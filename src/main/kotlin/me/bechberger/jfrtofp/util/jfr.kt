@@ -9,7 +9,8 @@ import jdk.jfr.consumer.RecordedThread
 import me.bechberger.jfrtofp.types.Milliseconds
 import org.objectweb.asm.Type
 import java.time.Instant
-import kotlin.math.roundToLong
+
+const val MAX_INTERVAL: Milliseconds = 1000.0
 
 fun Instant.toNanos(): Long = epochSecond * 1_000_000_000 + nano
 
@@ -17,19 +18,70 @@ fun Instant.toMicros(): Long = toNanos() / 1_000
 
 fun Instant.toMillis(): Milliseconds = toMicros() / 1_000.0
 
-fun List<RecordedEvent>.estimateIntervalInMicros() = take(100).map { it.startTime.toMicros() }.let {
-    it.zip(it.drop(1)).minOfOrNull { (a, b) -> b - a }
+fun List<Milliseconds>.estimateInterval(): Milliseconds {
+    val sortedList = sorted()
+    val differences = sorted().zip(sortedList.drop(1)).map { (a, b) -> b - a }.filter { it > 0 && it < MAX_INTERVAL }
+    // remove all differences that are more than double the size of sliding average of the previous five
+    // but don't take into account skipped differences when calculating the average
+    // with an efficient algorithm
+    val filteredDifferences = mutableListOf<Milliseconds>()
+    var sum = 0.0
+    var count = 0
+    for (i in 0 until differences.size) {
+        val diff = differences[i]
+        if (i >= 5) {
+            val avg = sum / count
+            if (diff > avg * 2) {
+                continue
+            }
+        }
+        filteredDifferences.add(diff)
+        sum += diff
+        count++
+        if (count > 5) {
+            sum -= differences[i - 5]
+            count--
+        }
+    }
+    // take the middle 80% to throw away outliers
+    val subset = filteredDifferences.sorted().let { it.subList((it.size * 0.1).toInt(), (it.size * 0.8).toInt()) }
+    // take the average
+    return subset.average()
 }
 
-fun Map<RecordedThread, List<RecordedEvent>>.estimateIntervalInMicros() =
-    values.filter { it.size > 2 }.mapNotNull { it.estimateIntervalInMicros() }.average().roundToLong()
+fun Collection<List<Milliseconds>>.estimateInterval() : Milliseconds {
+    // return the average of the averages weighted by the number of samples
+    val filtered = filter { it.size > 5 }
+    val averages = filtered.map { it.estimateInterval() }
+    val weights = filtered.map { it.size }
+    val weightedAverages = averages.zip(weights).map { (avg, weight) -> avg * weight }
+    val sumOfWeights = weights.sum()
+    return weightedAverages.sum() / sumOfWeights
+}
 
-fun estimateIntervalInMillis(startTimesPerThread: Map<Long, List<Milliseconds>>): Milliseconds =
-    startTimesPerThread.values.filter { it.size > 2 }.map { it ->
-        val sorted = it.sorted()
-        val diffs = sorted.zip(sorted.drop(1)).map { (a, b) -> b - a }.sorted()
-        diffs.average()
-    }.average()
+fun Collection<List<Milliseconds>>.estimateMinInterval() : Milliseconds {
+    // take the minimum of the 10% smallest intervals of all lists with more than 2 samples
+    // compute the intervals for each list by list[i] - list[i-1] and ignoring intervals
+    // larger than MAX_INTERVAL and <= 0
+    val filtered = filter { it.size > 2 }
+    val intervals = filtered.map { list ->
+        list.sorted().zip(list.sorted().drop(1)).map { (a, b) -> b - a }.filter { it > 0 && it < MAX_INTERVAL }
+    }
+    val smallestIntervals = intervals.map { it.sorted().subList(0, (it.size * 0.1).toInt()) }
+    val minIntervals = smallestIntervals.map { it.minOrNull() }.filterNotNull()
+    return minIntervals.minOrNull() ?: 0.0
+}
+
+fun Map<RecordedThread, List<RecordedEvent>>.estimateMinInterval(): Milliseconds {
+    val startTimesPerThread = values.map { events ->
+        events.map { it.startTime.toMillis() }
+    }
+    return startTimesPerThread.estimateMinInterval()
+}
+
+fun estimateIntervalInMillis(startTimesPerThread: Map<Long, List<Milliseconds>>): Milliseconds {
+    return startTimesPerThread.values.estimateInterval()
+}
 
 val RecordedEvent.isExecutionSample
     get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")

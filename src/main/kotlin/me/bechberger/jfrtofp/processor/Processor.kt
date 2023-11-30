@@ -539,7 +539,7 @@ data class BasicInformation(
             jfrFile: Path,
             config: Config,
             maxEventsConsidered: Int = 100000,
-            maxRecordedEventsConsideredForIntervalEstimation: Int = 10000
+            maxRecordedEventsConsideredForIntervalEstimation: Int = 100000000
         ): BasicInformation {
             // assumption: system properties, ... come before the first ExecutionSample event
             var mainThreadId: Long? = null
@@ -1055,7 +1055,10 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
         val threads = metaProcessor.sortedThreads().map {
             when (it) {
                 is ParentThreadInfo -> parentThreadProcessor.store()
-                is BasicThreadInfo -> storedThreads[it.id] ?: threadToProcessor[it.id]!!.store()
+                is BasicThreadInfo -> storedThreads[it.id] ?: threadToProcessor[it.id]?.store() ?:
+                {
+                    error("Thread ${it.id} ${it.name} not found")
+                }()
             }
         }
         writeProfile(
