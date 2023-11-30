@@ -55,7 +55,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             val thread = sample.sampledThread
             val threadNode = threads.computeIfAbsent(thread) { Node(thread.javaName, 0) }
             var currentNode = threadNode
-            for (frame in sample.stackTrace.frames.reversed()) {
+            for (frame in sample.stackTrace.frames.asReversed()) {
                 val methodToNode = nodeToChildNode.computeIfAbsent(currentNode) { HashMap() }
                 currentNode = methodToNode.computeIfAbsent(frame.method) { method ->
                     val node = Node(

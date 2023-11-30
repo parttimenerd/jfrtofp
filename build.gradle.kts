@@ -67,20 +67,20 @@ tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configure
 
 dependencies {
     // Align versions of all Kotlin components
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom"))
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.10"))
 
     // Use the Kotlin JDK 8 standard library.
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.10")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.8.1")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
 
     // Use the Kotlin JUnit integration.
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.4.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1")
-    implementation("info.picocli:picocli:4.6.3")
-    implementation("org.jline:jline-reader:3.21.0")
-    implementation("org.ow2.asm:asm:9.3")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.5.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.0")
+    implementation("info.picocli:picocli:4.7.3")
+    implementation("org.jline:jline-reader:3.23.0")
+    implementation("org.ow2.asm:asm:9.4")
 }
 
 tasks.test {

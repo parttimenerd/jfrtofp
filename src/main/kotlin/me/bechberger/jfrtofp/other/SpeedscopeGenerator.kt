@@ -64,12 +64,12 @@ internal object Speedscope {
                 if (other.callStack.size > index) {
                     if (method != other.callStack[index]) {
                         return this.callStack.subList(index, this.callStack.size).map { it to Decision.ClOSE }
-                            .reversed() + other.callStack.subList(index, other.callStack.size)
+                            .asReversed() + other.callStack.subList(index, other.callStack.size)
                             .map { it to Decision.OPEN }
                     }
                 } else {
                     return this.callStack.subList(index, this.callStack.size).map { it to Decision.ClOSE }
-                        .reversed()
+                        .asReversed()
                 }
             }
             if (other.callStack.size > this.callStack.size) {
@@ -126,7 +126,7 @@ class SpeedscopeGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             for (
                 (sample, startTime, _) in threadSamples.withTiming(estimatedIntervalInMicros).sortedBy { it.startTime }
             ) {
-                val newStack = Speedscope.Stack(sample.stackTrace.frames.map { HashedMethod(it.method) }.reversed())
+                val newStack = Speedscope.Stack(sample.stackTrace.frames.map { HashedMethod(it.method) }.asReversed())
                 val actions = currentStack.computeDecisions(newStack)
                 currentStack = newStack
                 addEvents(actions, startTime - ovStart)
