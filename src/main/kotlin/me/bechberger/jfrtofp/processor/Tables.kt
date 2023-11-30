@@ -1,5 +1,6 @@
 package me.bechberger.jfrtofp.processor
 
+import java.util.IdentityHashMap
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
 import jdk.jfr.consumer.RecordedMethod
@@ -25,6 +26,7 @@ import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.ByteCodeHelper
+import me.bechberger.jfrtofp.util.HashableRecordedMethod
 import me.bechberger.jfrtofp.util.HashedList
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.StringTableWrapper
@@ -104,6 +106,7 @@ data class Tables(
     val stackTraceTable: StackTableWrapper = StackTableWrapper(this)
     val funcTable: FuncTableWrapper = FuncTableWrapper(this)
     val rawMarkerTable: RawMarkerTableWrapper = RawMarkerTableWrapper(this, basicInformation, markerSchema)
+    val methodToHashable: IdentityHashMap<RecordedMethod, HashableRecordedMethod> = IdentityHashMap()
 
     fun getString(string: String) = stringTable[string]
 
@@ -144,6 +147,10 @@ data class Tables(
         subcategory: String = "Other",
         isNative: Boolean = false
     ) = stackTraceTable.getMiscStack(name, category, subcategory, isNative)
+
+    fun getHashable(func: RecordedMethod): HashableRecordedMethod {
+        return methodToHashable.computeIfAbsent(func) { HashableRecordedMethod(it) }
+    }
 }
 
 class RawMarkerTableWrapper(
@@ -233,13 +240,13 @@ class RawMarkerTableWrapper(
 }
 
 class ResourceTableWrapper(val tables: Tables) {
-    private val map = mutableMapOf<RecordedMethod, IndexIntoResourceTable>()
+    private val map = mutableMapOf<HashableRecordedMethod, IndexIntoResourceTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
     private val hosts = mutableListOf<IndexIntoStringTable?>()
     private val types = mutableListOf<resourceTypeEnum>()
 
     internal fun getResource(func: RecordedMethod, isJava: Boolean): IndexIntoResourceTable {
-        return map.computeIfAbsent(func) {
+        return map.computeIfAbsent(tables.getHashable(func)) {
             val wholeName = func.type.name
             names.add(tables.getString(wholeName.split("$").first()))
             if (isJava) {
@@ -271,7 +278,7 @@ class ResourceTableWrapper(val tables: Tables) {
 
 class FuncTableWrapper(val tables: Tables) {
 
-    private val map = mutableMapOf<RecordedMethod, IndexIntoFuncTable>()
+    private val map = mutableMapOf<HashableRecordedMethod, IndexIntoFuncTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
     private val lineNumbers = mutableListOf<Int>()
     private val isJss = mutableListOf<Boolean>()
@@ -285,7 +292,7 @@ class FuncTableWrapper(val tables: Tables) {
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
     internal fun getFunction(func: RecordedMethod, isJava: Boolean, lineNumber: Int): IndexIntoFuncTable {
-        return map.computeIfAbsent(func) {
+        return map.computeIfAbsent(tables.getHashable(func)) {
             val index = names.size
             val type = func.type
             val url =

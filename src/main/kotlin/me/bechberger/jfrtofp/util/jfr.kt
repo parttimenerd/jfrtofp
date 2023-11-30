@@ -194,3 +194,28 @@ fun EventType.hasField(name: String) = getField(name) != null
 
 val Path.fileExtension: String
     get() = fileName.toString().substringAfterLast('.', "")
+
+
+/**
+ * The RecordMethods are per chunk, it isn't possible, therefore, to use them as keys in maps directly
+ *
+ * Using their identity caused https://github.com/parttimenerd/jfrtofp/issues/6
+ */
+data class HashableRecordedMethod(val method: RecordedMethod, private var hash: Int = 0) {
+    init {
+        hash = method.name.hashCode() * 31 + method.type.name.hashCode() * 31 + method.descriptor.hashCode()
+    }
+
+    override fun hashCode(): Int {
+        return hash
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (other is RecordedMethod) {
+            return method.name == other.name && method.type.name == other.type.name && method.descriptor == other.descriptor
+        } else if (other !is HashableRecordedMethod) {
+            return false
+        }
+        return equals(other.method)
+    }
+}
