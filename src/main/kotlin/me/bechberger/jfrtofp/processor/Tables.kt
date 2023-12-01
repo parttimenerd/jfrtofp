@@ -317,6 +317,7 @@ class FuncTableWrapper(val tables: Tables) {
             resourcess.add(-1)
             fileNames.add(null)
             sourceUrls.add(tables.defaultUrl?.let { tables.getString(it) })
+            lineNumbers.add(-1)
             index
         }
     }
@@ -361,7 +362,10 @@ class FrameTableWrapper(val tables: Tables) {
     internal fun getFrame(
         frame: RecordedFrame
     ): IndexIntoFrameTable {
-        val func = tables.getFunction(frame.method, frame.isJavaFrame, frame.lineNumber)
+        // we don't know the start line of the function from JFR
+        // so we use -1, to signal the profile viewer that it is invalid
+        // Related to https://github.com/parttimenerd/jfrtofp/issues/6
+        val func = tables.getFunction(frame.method, frame.isJavaFrame, -1)
         val line = if (frame.lineNumber == -1) null else frame.lineNumber
 
         return map.computeIfAbsent(func to line) {
