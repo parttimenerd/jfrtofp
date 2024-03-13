@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Ignore stack trace frames with null methods
+
 ## [0.0.3]
 
 ### Changed

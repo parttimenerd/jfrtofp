@@ -464,7 +464,9 @@ class StackTableWrapper(val tables: Tables) {
         tables: Tables,
         stackTrace: RecordedStackTrace
     ) =
-        HashedFrameList(stackTrace.frames.asReversed().map { tables.getFrame(it) })
+        HashedFrameList(stackTrace.frames
+            .filter { f -> f.method != null }
+            .asReversed().map { tables.getFrame(it) })
 
     internal fun getStack(
         stackTrace: RecordedStackTrace,
