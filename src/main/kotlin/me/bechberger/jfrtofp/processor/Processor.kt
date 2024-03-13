@@ -49,6 +49,8 @@ import me.bechberger.jfrtofp.util.isExecutionSample
 import me.bechberger.jfrtofp.util.isGCThread
 import me.bechberger.jfrtofp.util.isSystemThread
 import me.bechberger.jfrtofp.util.jsonFormat
+import me.bechberger.jfrtofp.util.name
+import me.bechberger.jfrtofp.util.realJavaName
 import me.bechberger.jfrtofp.util.realThread
 import me.bechberger.jfrtofp.util.sampledThread
 import me.bechberger.jfrtofp.util.toMicros
@@ -246,7 +248,7 @@ class ThreadProcessor(
         get() = threadEndEvent?.startTime?.toMillis() ?: end.toMillis()
 
     private val name: String
-        get() = if (isParentProcessThread) "GeckoMain" else thread?.let { it.javaName ?: it.osName } ?: "<unknown>"
+        get() = if (isParentProcessThread) "GeckoMain" else thread?.let { it.realJavaName ?: it.osName } ?: "<unknown>"
 
     private val pid: Pid
         get() = basicInformation.pid
@@ -562,11 +564,11 @@ data class BasicInformation(
                         )
                 ) {
                     val event = file.readEvent()
-                    if (event.realThread?.javaName == null) {
+                    if (event.realThread?.realJavaName == null) {
                         continue
                     }
                     event.realThread?.let {
-                        if (it.javaName == "main") {
+                        if (it.realJavaName == "main") {
                             mainThreadId = it.id
                         }
                     }
@@ -638,7 +640,7 @@ class BasicThreadInfo(
     internal var otherSampleCount: Int = 0
 ) : AbstractThreadInfo(startTime), Comparable<BasicThreadInfo> {
     val id = recordedThread.id
-    val name = recordedThread.javaName
+    val name = recordedThread.name
     val isSystemThread = recordedThread.isSystemThread()
     val isGCThread = recordedThread.isGCThread()
 

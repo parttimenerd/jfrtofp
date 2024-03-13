@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import java.nio.file.Path
 import me.bechberger.jfrtofp.util.estimateMinInterval
+import me.bechberger.jfrtofp.util.realJavaName
 import kotlin.math.max
 import kotlin.math.roundToLong
 
@@ -141,7 +142,7 @@ class SpeedscopeGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             }
             profiles.add(
                 Speedscope.EventedProfile(
-                    name = "Thread ${thread.javaName}",
+                    name = "Thread ${thread.realJavaName!!}",
                     startValue = 0,
                     endValue = lastEndTime - ovStart + estimatedIntervalInMicros,
                     unit = "microseconds",

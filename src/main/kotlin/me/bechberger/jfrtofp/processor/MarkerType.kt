@@ -14,6 +14,7 @@ import me.bechberger.jfrtofp.util.formatBytes
 import java.lang.reflect.Modifier
 import java.time.Instant
 import java.util.logging.Logger
+import me.bechberger.jfrtofp.util.realJavaName
 
 enum class MarkerType(
     val type: MarkerFormatType,
@@ -144,7 +145,7 @@ enum class MarkerType(
     ),
     EVENT_THREAD(BasicMarkerFormatType.STRING, { _, _, fieldValue ->
         (fieldValue as RecordedThread).let {
-            "${it.javaName} (${it.id})"
+            "${it.realJavaName!!} (${it.id})"
         }
     }),
 

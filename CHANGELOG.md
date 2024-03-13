@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- Ignore stack trace frames with null methods
+- Ignore stack trace frames with null methods #14
+- Handle virtual threads better #14
 
 ## [0.0.3]
 

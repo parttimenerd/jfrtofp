@@ -98,7 +98,7 @@ val RecordedClass.className
     }
 
 fun RecordedThread.isSystemThread(): Boolean {
-    return javaName == null || javaName in listOf(
+    return !isVirtualThread() && (javaName == null || javaName in listOf(
         "JFR Periodic Tasks",
         "JFR Shutdown Hook",
         "Permissionless thread",
@@ -107,10 +107,20 @@ fun RecordedThread.isSystemThread(): Boolean {
         javaName.startsWith("JFR ") ||
         javaName == "Monitor Ctrl-Break" || "CompilerThread" in javaName ||
         javaName.startsWith("GC Thread") || javaName == "Notification Thread" ||
-        javaName == "Finalizer" || javaName == "Attach Listener"
+        javaName == "Finalizer" || javaName == "Attach Listener")
 }
 
-fun RecordedThread.isGCThread() = osName.startsWith("GC Thread") && javaName == null
+fun RecordedThread.isVirtualThread(): Boolean {
+    return this.hasField("virtual") && this.getBoolean("virtual")
+}
+
+val RecordedThread.realJavaName: String?
+    get() = if (javaName.isNullOrEmpty())  (if (isVirtualThread()) "VirtualThread$javaThreadId" else null) else javaName
+
+val RecordedThread.name: String?
+    get() = realJavaName ?: osName
+
+fun RecordedThread.isGCThread() = !isVirtualThread() && osName.startsWith("GC Thread") && javaName == null
 
 private val RecordedEvent.isSampledThreadCorrectProperty
     get() = eventType.name == "jdk.NativeMethodSample" || eventType.name == "jdk.ExecutionSample"

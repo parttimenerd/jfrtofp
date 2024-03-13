@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import me.bechberger.jfrtofp.util.sampledThread
 import java.nio.file.Path
 import java.util.IdentityHashMap
+import me.bechberger.jfrtofp.util.realJavaName
 
 class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
     /**
@@ -53,7 +54,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
                 continue
             }
             val thread = sample.sampledThread
-            val threadNode = threads.computeIfAbsent(thread) { Node(thread.javaName, 0) }
+            val threadNode = threads.computeIfAbsent(thread) { Node(thread.realJavaName!!, 0) }
             var currentNode = threadNode
             for (frame in sample.stackTrace.frames.asReversed()) {
                 val methodToNode = nodeToChildNode.computeIfAbsent(currentNode) { HashMap() }
