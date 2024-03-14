@@ -137,7 +137,7 @@ data class StackTable(
     val subcategory: List<IndexIntoSubcategoryListForCategory>,
     val prefix: List<IndexIntoStackTable?>,
     @Required
-    val length: Int = category.size
+    val length: Int = category.size,
 )
 
 /**
@@ -185,7 +185,7 @@ enum class WeightType {
     TRACING,
 
     @SerialName("bytes")
-    BYTES
+    BYTES,
 }
 
 @Serializable(with = SamplesLikeTableSerializer::class)
@@ -235,7 +235,7 @@ data class SamplesTable(
     // This property isn't present in normal threads. However it's present for
     // merged threads, so that we know the origin thread for these samples.
     val threadId: List<Tid>? = null,
-    override val length: Int = time.size
+    override val length: Int = time.size,
 ) : SamplesLikeTable
 
 /**
@@ -261,7 +261,7 @@ data class JsAllocationsTable(
     val inNursery: List<Bytes> = List(className.size) { 0 },
     override val stack: List<IndexIntoStackTable?>,
     @Required
-    override val length: Int = className.size
+    override val length: Int = className.size,
 ) : SamplesLikeTable
 
 /**
@@ -281,15 +281,16 @@ data class NativeAllocationsTable(
     override val stack: List<IndexIntoStackTable?>,
     @Required
     override val length: Int = time.size,
-    val threadId: List<Tid>? = null
+    val threadId: List<Tid>? = null,
 ) : SamplesLikeTable
 
 object SamplesLikeTableSerializer : JsonContentPolymorphicSerializer<SamplesLikeTable>(SamplesLikeTable::class) {
-    override fun selectDeserializer(element: JsonElement) = when {
-        "inNursery" in element.jsonObject -> JsAllocationsTable.serializer()
-        "bytes" in element.jsonObject -> NativeAllocationsTable.serializer()
-        else -> SamplesTable.serializer()
-    }
+    override fun selectDeserializer(element: JsonElement) =
+        when {
+            "inNursery" in element.jsonObject -> JsAllocationsTable.serializer()
+            "bytes" in element.jsonObject -> NativeAllocationsTable.serializer()
+            else -> SamplesTable.serializer()
+        }
 }
 
 /**
@@ -316,7 +317,7 @@ data class RawMarkerTable(
     // merged threads, so that we know the origin thread for these markers.
     val threadId: List<Tid>? = null,
     @Required
-    val length: Int = data.size
+    val length: Int = data.size,
 )
 
 /**
@@ -331,9 +332,7 @@ data class FrameTable(
     val line: List<Int?>,
     @Required
     var length: Int = func.size,
-
     // all of the other properties are not important (for now)
-
     // If this is a frame for native code, the address is the address of the frame's
     // assembly instruction,  relative to the native library that contains it.
     //
@@ -348,7 +347,6 @@ data class FrameTable(
     // default is -1
     @Required
     val address: List<Address> = List(length) { -1L },
-
     // The inline depth for this frame. If there is an inline stack at an address,
     // we create multiple frames with the same address, one for each depth.
     // The outermost frame always has depth 0.
@@ -377,13 +375,11 @@ data class FrameTable(
     // nativeSymbol, but each has a different func and line.
     @Required
     val inlineDepth: List<Int> = List(length) { 0 },
-
     // The symbol index (referring into this thread's nativeSymbols table) corresponding
     // to symbol that covers the frame address of this frame. Only non-null for native
     // frames (e.g. C / C++ / Rust code). Null before symbolication.
     @Required
     val nativeSymbol: List<IndexIntoNativeSymbolTable?> = List(length) { null },
-
     // Inner window ID of JS frames. JS frames can be correlated to a Page through this value.
     // It's used to determine which JS frame belongs to which web page so we can display
     // that information and filter for single tab profiling.
@@ -393,13 +389,12 @@ data class FrameTable(
     // is being stored as `uint64_t` there.
     @Required
     val innerWindowID: List<InnerWindowID?> = List(length) { null },
-
     @Required
     val implementation: List<IndexIntoStringTable?> = List(length) { null },
     @Required
     val column: List<Int?> = List(length) { null },
     @Required
-    val optimizations: List<Int?> = List(line.size) { null }
+    val optimizations: List<Int?> = List(line.size) { null },
 )
 
 /**
@@ -423,7 +418,6 @@ data class FrameTable(
 data class FuncTable(
     // The function name.
     val name: List<IndexIntoStringTable>,
-
     // isJS and relevantForJS describe the function type. Non-JavaScript functions
     // can be marked as "relevant for JS" so that for example DOM API label functions
     // will show up in any JavaScript stack views.
@@ -432,13 +426,11 @@ data class FuncTable(
     // NOTE: use for "own code" vs "JVM/library/native code" (depending on the configuration)
     val isJS: List<Boolean>,
     val relevantForJS: List<Boolean>,
-
     // The resource describes "Which bag of code did this function come from?".
     // For JS functions, the resource is of type addon, webhost, otherhost, or url.
     // For native functions, the resource is of type library.
     // For labels and for other unidentified functions, we set the resource to -1.
     val resource: List<IndexIntoResourceTable>,
-
     // These are non-null for JS functions only. The line and column describe the
     // location of the *start* of the JS function. As for the information about which
     // which lines / columns inside the function were actually hit during execution,
@@ -485,12 +477,10 @@ data class NativeSymbolTable(
     val address: List<Address>,
     // The symbol name, demangled.
     val name: List<IndexIntoStringTable>,
-
     // The size of the function's machine code (if known), in bytes.
     val functionSize: List<Bytes?>,
-
     @Required
-    var length: Int = name.size
+    var length: Int = name.size,
 )
 
 /**
@@ -506,7 +496,7 @@ data class ResourceTable(
     val lib: List<IndexIntoLibs?> = List(length) { null },
     val host: List<IndexIntoStringTable?>,
     /** 0: unknown, library: 1, addon: 2, webhost: 3, otherhost: 4, url: 5 */
-    val type: List<resourceTypeEnum>
+    val type: List<resourceTypeEnum>,
 )
 
 /**
@@ -523,7 +513,6 @@ data class Lib(
     val debugName: String, // e.g. "firefox", or "firefox.pdb" on Windows
     val debugPath: String, // e.g. "/Applications/FirefoxNightly.app/Contents/MacOS/firefox"
     val breakpadId: String, // e.g. "E54D3AF274383256B9F6144F83F3F7510"
-
     // The codeId is currently always null.
     // In the future, it will have the following values:
     //  - On macOS, it will still be null.
@@ -536,14 +525,14 @@ data class Lib(
     //    by Windows symbol servers. This will allow us to get assembly code for
     //    Windows system libraries for profiles which were captured on another machine.
     @Required
-    val codeId: String? = null // e.g. "6132B96B70fd000"
+    val codeId: String? = null, // e.g. "6132B96B70fd000"
 )
 
 @Serializable
 data class Category(
     val name: String,
     val color: String,
-    val subcategories: List<String>
+    val subcategories: List<String>,
 )
 
 typealias CategoryList = List<Category>
@@ -577,7 +566,7 @@ data class Page(
     // capturing was disabled when a private browsing window was open.
     // The property is always present in Firefox 98+.
     @Required
-    val isPrivateBrowsing: Boolean = false
+    val isPrivateBrowsing: Boolean = false,
 )
 
 typealias PageList = List<Page>
@@ -593,7 +582,7 @@ enum class PauseReason {
     COLLECTING,
 
     @SerialName("parked")
-    PARKED
+    PARKED,
 }
 
 /**
@@ -606,7 +595,7 @@ data class PausedRange(
     val startTime: Milliseconds?,
     // null if the profiler was still paused when the profile was captured
     val endTime: Milliseconds?,
-    val reason: PauseReason
+    val reason: PauseReason,
 )
 
 @Serializable
@@ -617,7 +606,7 @@ data class JsTracerTable(
     val line: List<Int?>, // Line number.
     val column: List<Int?>, // Column number.
     @Required
-    val length: Int = column.size
+    val length: Int = column.size,
 )
 
 @Serializable
@@ -630,13 +619,13 @@ data class CounterSamplesTable(
        real count[i] = sum(count[0], ..., count[i])*/
     val count: List<Long>,
     @Required
-    val length: Int = count.size
+    val length: Int = count.size,
 )
 
 @Serializable
 data class SampleGroup(
     val id: Int,
-    val samples: CounterSamplesTable
+    val samples: CounterSamplesTable,
 )
 
 @Serializable
@@ -647,7 +636,7 @@ data class Counter(
     val description: String,
     val pid: Pid,
     val mainThreadIndex: ThreadIndex,
-    val sampleGroups: List<SampleGroup>
+    val sampleGroups: List<SampleGroup>,
 )
 
 /**
@@ -666,7 +655,7 @@ data class ProfilerConfiguration(
     // should take care of this case while we are consuming it. If it's `0`, we
     // should revert back to the full view since there isn't enough data to show
     // the active tab view.
-    val activeTabID: TabID? = null
+    val activeTabID: TabID? = null,
 )
 
 /**
@@ -684,7 +673,7 @@ data class ProfilerOverheadSamplesTable(
     val threads: List<Microseconds>,
     val time: List<Milliseconds>,
     @Required
-    val length: Int = time.size
+    val length: Int = time.size,
 )
 
 /**
@@ -698,7 +687,7 @@ data class ProfilerOverhead(
     // There is no statistics object if there is no sample.
     val statistics: Missing? = null,
     val pid: Pid,
-    val mainThreadIndex: ThreadIndex
+    val mainThreadIndex: ThreadIndex,
 )
 
 @Experimental
@@ -708,7 +697,7 @@ data class SampleLikeMarkerConfigEntry(
     val key: String,
     val weightType: WeightType? = null,
     val weightField: String? = null,
-    val stackTraceField: String? = null
+    val stackTraceField: String? = null,
 )
 
 /**
@@ -732,7 +721,7 @@ data class SampleLikeMarkerConfig(
     // else 1 is used as the weight for every marker
     val weightField: String? = null,
     // field where the stack is stored, defaults to the cause field
-    val stackField: String? = null
+    val stackField: String? = null,
 )
 
 /**
@@ -757,7 +746,7 @@ data class Thread(
     // Unknown process type:
     // https://searchfox.org/mozilla-central/rev/819cd31a93fd50b7167979607371878c4d6f18e8/toolkit/xre/nsEmbedFunctions.cpp#232
     | 'invalid'
-    */
+     */
     @Required
     val processType: String = "default",
     val processStartupTime: Milliseconds,
@@ -774,7 +763,7 @@ data class Thread(
     - It's not an isolated content process.
     - It's a sanitized profile.
     - It's a profile from an older Firefox which doesn't include this field (introduced in Firefox 80).
-    */
+     */
     @Suppress("ConstructorParameterNaming")
     val `eTLD+1`: String? = null,
     val processName: String? = null,
@@ -782,7 +771,7 @@ data class Thread(
     val pid: Pid,
     val tid: Tid,
     val samples: SamplesTable,
-    /* this table cannot be empty */
+    // this table cannot be empty
     val jsAllocations: JsAllocationsTable? = null,
     val nativeAllocations: NativeAllocationsTable? = null,
     val markers: RawMarkerTable,
@@ -793,7 +782,7 @@ data class Thread(
     their index by other tables.
 
     but the gTable is apparently not required
-    */
+     */
     val gTable: List<String>,
     val funcTable: FuncTable,
     // val stringTable: StringTable,
@@ -807,16 +796,16 @@ data class Thread(
     captured in a non-fission browser.
     It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
     had no extra attribute at all.
-    */
+     */
     val isPrivateBrowsing: Boolean? = null,
     /*
     If present and non-0, the number represents the container this thread was loaded in.
     It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
     had no extra attribute at all.
-    */
+     */
     val userContextId: Int? = null,
     @Experimental
-    val sampleLikeMarkersConfig: List<SampleLikeMarkerConfig>? = null
+    val sampleLikeMarkersConfig: List<SampleLikeMarkerConfig>? = null,
 ) {
     init {
         //  assert(jsAllocations.isNullOrEmpty())
@@ -831,7 +820,7 @@ data class ExtensionTable(
     val id: List<String>,
     val name: List<String>,
     @Required
-    val length: Int = name.size
+    val length: Int = name.size,
 )
 
 // Units of ThreadCPUDelta values for different platforms.
@@ -847,7 +836,7 @@ enum class ThreadCPUDeltaUnit {
 
     @SerialName("variable CPU cycles")
     @Suppress("unused")
-    VARIABLE_CPU_CYCLES
+    VARIABLE_CPU_CYCLES,
 }
 
 // Object that holds the units of samples table values. Some of the values can be
@@ -859,7 +848,7 @@ data class SampleUnits(
     val time: String = "ms",
     @Required
     val eventDelay: String = "ms",
-    val threadCPUDelta: ThreadCPUDeltaUnit
+    val threadCPUDelta: ThreadCPUDeltaUnit,
 )
 
 /**
@@ -870,35 +859,35 @@ data class ProfileMeta(
     val arguments: String,
     /** The interval at which the threads are sampled. */
     val interval: Milliseconds,
-    /* The number of milliseconds since midnight January 1, 1970 GMT. */
+    // The number of milliseconds since midnight January 1, 1970 GMT.
     val startTime: Milliseconds,
     val endTime: Milliseconds,
     /*
     The process type where the Gecko profiler was started. This is the raw enum
     numeric value as defined here:
     https://searchfox.org/mozilla-central/rev/819cd31a93fd50b7167979607371878c4d6f18e8/xpcom/build/nsXULAppAPI.h#365
-    */
+     */
     @Required
     val processType: Int = 0,
     /*
     The extensions property landed in Firefox 60, and is only optional because older
     processed profile versions may not have it. No upgrader was written for this change.
-    */
+     */
     val extensions: ExtensionTable? = null,
     /*
     The list of categories as provided by the platform. The categories are present for
     all Firefox profiles, but imported profiles may not include any category support.
     The front-end will provide a default list of categories, but the saved profile
     will not include them.
-    */
+     */
     val categories: CategoryList? = null,
-    /* The name of the product, most likely "Firefox". */
+    // The name of the product, most likely "Firefox".
     val product: String,
     /*
     This value represents a boolean, but for some reason is written out as an int value.
     It's 0 for the stack walking feature being turned off, and 1 for stackwalking being
     turned on.
-    */
+     */
     val stackwalk: Int,
     // A boolean flag indicating whether the profiled application is using a debug build.
     // It's false for opt builds, and true for debug builds.
@@ -913,10 +902,8 @@ data class ProfileMeta(
     // This is the processed profile format version.
     @Required
     val preprocessedProfileVersion: Int = 41,
-
     // The following fields are most likely included in Gecko profiles, but are marked
     // optional for imported or converted profiles.
-
     // The XPCOM ABI (Application Binary Interface) name, taking the form:
     // {CPU_ARCH}-{TARGET_COMPILER_ABI} e.g. "x86_64-gcc3"
     // See https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XPCOM/XPCOM_ABI
@@ -940,11 +927,9 @@ data class ProfileMeta(
     // we could find the value "gtk3".
     // 'gtk' | 'gtk3' | 'windows' | 'cocoa' | 'android' | String
     val toolkit: String? = null,
-
     // The appBuildID, sourceURL, physicalCPUs and logicalCPUs properties landed
     // in Firefox 62, and are optional because older processed profile
     // versions may not have them. No upgrader was written for this change.
-
     // The build ID/date of the application.
     val appBuildID: String? = null,
     // The URL to the source revision for this build of the application.
@@ -977,7 +962,6 @@ data class ProfileMeta(
     //    | 'esr' // Extended Support Release channel
     //    | String,
     val updateChannel: String? = null,
-
     // Visual metrics contains additional performance metrics such as Speed Index,
     // Perceptual Speed Index, and ContentfulSpeedIndex. This is optional because only
     // profiles generated by browsertime will have this property. Source code for
@@ -1004,7 +988,6 @@ data class ProfileMeta(
     // They also use the "product" field in the meta information, but this is somewhat
     // ambiguous. This field, if present, is unambiguous that it was imported.
     val importedFrom: String? = null,
-
     @Required
     val usesOnlyOneStackType: Boolean? = true,
     @Required
@@ -1023,7 +1006,7 @@ data class ProfileMeta(
     // of each process might not make sense.
     val initialSelectedThreads: List<ThreadIndex>? = null,
     // Keep the defined thread order
-    val keepProfileThreadOrder: Boolean? = null
+    val keepProfileThreadOrder: Boolean? = null,
 )
 
 @Serializable
@@ -1031,13 +1014,13 @@ data class ExtraProfileInfoEntry(
     val label: String,
     val format: MarkerFormatType,
     // any value valid for the formatter
-    val value: JsonElement
+    val value: JsonElement,
 )
 
 @Serializable
 data class ExtraProfileInfoSection(
     val label: String,
-    val entries: List<ExtraProfileInfoEntry>
+    val entries: List<ExtraProfileInfoEntry>,
 )
 
 /**
@@ -1059,7 +1042,7 @@ data class Profile(
     val profilerOverhead: ProfilerOverhead? = null,
     val threads: List<Thread>,
     val profilingLog: ProfilingLog? = null,
-    val profileGatheringLog: ProfilingLog? = null
+    val profileGatheringLog: ProfilingLog? = null,
 )
 
 /*

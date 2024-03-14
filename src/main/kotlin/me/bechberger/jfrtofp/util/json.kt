@@ -23,30 +23,34 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+
 // source: https://github.com/Kotlin/kotlinx.serialization/issues/296#issuecomment-1132714147
 fun Collection<*>.toJsonElement(): JsonElement = JsonArray(mapNotNull { it.toJsonElement() })
 
-fun Map<*, *>.toJsonElement(): JsonElement = JsonObject(
-    mapNotNull {
-        (it.key as? String ?: return@mapNotNull null) to it.value.toJsonElement()
-    }.toMap()
-)
+fun Map<*, *>.toJsonElement(): JsonElement =
+    JsonObject(
+        mapNotNull {
+            (it.key as? String ?: return@mapNotNull null) to it.value.toJsonElement()
+        }.toMap(),
+    )
 
-fun Any?.toJsonElement(): JsonElement = when (this) {
-    null -> JsonNull
-    is Map<*, *> -> toJsonElement()
-    is Collection<*> -> toJsonElement()
-    is Number -> JsonPrimitive(this)
-    is Boolean -> JsonPrimitive(this)
-    else -> JsonPrimitive(toString())
-}
+fun Any?.toJsonElement(): JsonElement =
+    when (this) {
+        null -> JsonNull
+        is Map<*, *> -> toJsonElement()
+        is Collection<*> -> toJsonElement()
+        is Number -> JsonPrimitive(this)
+        is Boolean -> JsonPrimitive(this)
+        else -> JsonPrimitive(toString())
+    }
 
 @OptIn(ExperimentalSerializationApi::class)
-val jsonFormat = Json {
-    prettyPrint = false
-    encodeDefaults = true
-    explicitNulls = false
-}
+val jsonFormat =
+    Json {
+        prettyPrint = false
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
 fun Profile.generateJSON(): String {
     return jsonFormat.encodeToString(this)
@@ -109,7 +113,6 @@ fun Profile.store(path: Path) {
 
 /** a tiny JSON generator which does not care about pretty printing */
 class BasicJSONGenerator(val output: OutputStream) {
-
     fun writeStartObject() {
         output.write('{'.code)
     }
@@ -134,7 +137,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         output.write("[]".toByteArray())
     }
 
-    fun writeSimpleField(name: String, value: String, last: Boolean = false) {
+    fun writeSimpleField(
+        name: String,
+        value: String,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         output.write("\"$value\"".toByteArray())
         if (!last) {
@@ -142,7 +149,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun writeSimpleField(name: String, value: Number, last: Boolean = false) {
+    fun writeSimpleField(
+        name: String,
+        value: Number,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         write(value.toString())
         if (!last) {
@@ -150,7 +161,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun writeSimpleField(name: String, value: Boolean, last: Boolean = false) {
+    fun writeSimpleField(
+        name: String,
+        value: Boolean,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         output.write(value.toString().toByteArray())
         if (!last) {
@@ -158,7 +173,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun writeField(name: String, value: String, last: Boolean = false) {
+    fun writeField(
+        name: String,
+        value: String,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         write(value)
         if (!last) {
@@ -166,14 +185,20 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun writeRawArrayItem(item: ByteArray, isLast: Boolean = false) {
+    fun writeRawArrayItem(
+        item: ByteArray,
+        isLast: Boolean = false,
+    ) {
         output.write(item)
         if (!isLast) {
             output.write(','.code)
         }
     }
 
-    fun writeRawByteArray(item: ByteArray, isCompressed: Boolean) {
+    fun writeRawByteArray(
+        item: ByteArray,
+        isCompressed: Boolean,
+    ) {
         if (isCompressed) {
             GZIPInputStream(item.inputStream()).use { zipped ->
                 zipped.copyTo(output)
@@ -193,7 +218,12 @@ class BasicJSONGenerator(val output: OutputStream) {
         write("\"$string\"")
     }
 
-    fun <T> writeArrayField(name: String, array: List<T>, writeItem: (T) -> Unit, last: Boolean = false) {
+    fun <T> writeArrayField(
+        name: String,
+        array: List<T>,
+        writeItem: (T) -> Unit,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         writeArray(array, writeItem)
         if (!last) {
@@ -201,7 +231,10 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun <T> writeArray(list: List<T>, writeItem: (T) -> Unit) {
+    fun <T> writeArray(
+        list: List<T>,
+        writeItem: (T) -> Unit,
+    ) {
         writeStartArray()
         list.forEachIndexed { index, item ->
             writeItem(item)
@@ -212,15 +245,28 @@ class BasicJSONGenerator(val output: OutputStream) {
         writeEndArray()
     }
 
-    fun <T : Number?> writeNumberArrayField(name: String, array: List<T>, last: Boolean = false) {
+    fun <T : Number?> writeNumberArrayField(
+        name: String,
+        array: List<T>,
+        last: Boolean = false,
+    ) {
         writeArrayField(name, array, { if (it == null) write("null") else write(it.toString()) }, last)
     }
 
-    fun <T : Boolean?> writeBooleanArrayField(name: String, array: List<T>, last: Boolean = false) {
+    fun <T : Boolean?> writeBooleanArrayField(
+        name: String,
+        array: List<T>,
+        last: Boolean = false,
+    ) {
         writeArrayField(name, array, { if (it == null) write("null") else write(it.toString()) }, last)
     }
 
-    fun writeSingleValueArrayField(name: String, value: String, size: Int, last: Boolean = false) {
+    fun writeSingleValueArrayField(
+        name: String,
+        value: String,
+        size: Int,
+        last: Boolean = false,
+    ) {
         writeFieldName(name)
         writeStartArray()
         for (i in 0 until size) {
@@ -235,7 +281,11 @@ class BasicJSONGenerator(val output: OutputStream) {
         }
     }
 
-    fun writeNullArrayField(name: String, size: Int, last: Boolean = false) {
+    fun writeNullArrayField(
+        name: String,
+        size: Int,
+        last: Boolean = false,
+    ) {
         writeSingleValueArrayField(name, "null", size, last)
     }
 

@@ -18,15 +18,15 @@ repositories {
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id("org.jetbrains.kotlin.jvm") version "1.7.10"
-    kotlin("plugin.serialization") version "1.7.10"
+    id("org.jetbrains.kotlin.jvm") version "1.9.22"
+    kotlin("plugin.serialization") version "1.9.22"
 
     id("com.github.johnrengelman.shadow") version "7.1.2"
 
-    // id("io.gitlab.arturbosch.detekt") version "1.21.0"
+    id("io.gitlab.arturbosch.detekt") version "1.23.5"
     pmd
 
-    //id("org.jlleitschuh.gradle.ktlint") version "11.0.0"
+    id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
 
     `maven-publish`
 
@@ -52,7 +52,7 @@ java {
 
 apply { plugin("com.github.johnrengelman.shadow") }
 
-/*detekt {
+detekt {
     buildUponDefaultConfig = true // preconfigure defaults
     config = files("$rootDir/config/detekt/detekt.yml")
     autoCorrect = true
@@ -63,24 +63,24 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
 }
 tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
     jvmTarget = "1.11"
-}*/
+}
 
 dependencies {
     // Align versions of all Kotlin components
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.10"))
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.9.22"))
 
     // Use the Kotlin JDK 8 standard library.
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.10")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
 
     // Use the Kotlin JUnit integration.
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.5.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.0")
-    implementation("info.picocli:picocli:4.7.3")
-    implementation("org.jline:jline-reader:3.23.0")
-    implementation("org.ow2.asm:asm:9.4")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.6.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+    implementation("info.picocli:picocli:4.7.5")
+    implementation("org.jline:jline-reader:3.25.1")
+    implementation("org.ow2.asm:asm:9.6")
 }
 
 tasks.test {
@@ -96,9 +96,14 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions.jvmTarget = "11"
 }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
 tasks.register<Copy>("copyHooks") {
-    //from("bin/pre-commit")
-    //into(".git/hooks")
+    from("bin/pre-commit")
+    into(".git/hooks")
 }
 
 tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))

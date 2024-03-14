@@ -27,9 +27,10 @@ data class Field(
 ) {
     init {
         assert(
-            sourceName != null || sourceAccessor != null
+            sourceName != null || sourceAccessor != null,
         ) { "Either sourceName or sourceAccessor must be set" }
     }
+
     fun getValue(event: RecordedEvent): Any? {
         return sourceAccessor?.invoke(event) ?: event.getValue(sourceName!!)
     }
@@ -45,9 +46,11 @@ class MarkerSchemaProcessor(val config: Config) {
     private val timelineOverviewEvents = setOf<String>("jdk.ThreadPark")
     private val timelineMemoryEvents = setOf("memory", "gc", "GarbageCollection")
 
-    private fun isIgnoredEvent(event: String) = event.equals("jdk.ExecutionSample") || event.equals(
-        "jdk.NativeMethodSample"
-    )
+    private fun isIgnoredEvent(event: String) =
+        event.equals("jdk.ExecutionSample") ||
+            event.equals(
+                "jdk.NativeMethodSample",
+            )
 
     private fun isIgnoredField(field: ValueDescriptor) =
         (config.omitEventThreadProperty && field.name == "eventThread") ||
@@ -57,101 +60,113 @@ class MarkerSchemaProcessor(val config: Config) {
 
     data class SpecialEventType(val directDataFields: List<Field>? = null, val trackConfig: MarkerTrackConfig? = null)
 
-    private val specialEventTypes = mapOf<String, SpecialEventType>(
-        "jdk.CPULoad" to SpecialEventType(
-            trackConfig = MarkerTrackConfig(
-                label = "CPU Load",
-                height = MarkerTrackConfigLineHeight.LARGE,
-                lines = listOf(
-                    MarkerTrackLineConfig(
-                        key = "jvmSystem",
-                        strokeColor = "orange",
-                        type = MarkerTrackConfigLineType.LINE
-                    ),
-                    MarkerTrackLineConfig(
-                        key = "jvmUser",
-                        strokeColor = "blue",
-                        type = MarkerTrackConfigLineType.LINE
-                    )
+    private val specialEventTypes =
+        mapOf<String, SpecialEventType>(
+            "jdk.CPULoad" to
+                SpecialEventType(
+                    trackConfig =
+                        MarkerTrackConfig(
+                            label = "CPU Load",
+                            height = MarkerTrackConfigLineHeight.LARGE,
+                            lines =
+                                listOf(
+                                    MarkerTrackLineConfig(
+                                        key = "jvmSystem",
+                                        strokeColor = "orange",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                    MarkerTrackLineConfig(
+                                        key = "jvmUser",
+                                        strokeColor = "blue",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                ),
+                            isPreSelected = true,
+                        ),
                 ),
-                isPreSelected = true
-            )
-        ),
-        "jdk.NetworkUtilization" to SpecialEventType(
-            trackConfig = MarkerTrackConfig(
-                label = "Network Utilization",
-                height = MarkerTrackConfigLineHeight.LARGE,
-                lines = listOf(
-                    MarkerTrackLineConfig(
-                        key = "readRate",
-                        strokeColor = "blue",
-                        type = MarkerTrackConfigLineType.LINE
-                    ),
-                    MarkerTrackLineConfig(
-                        key = "writeRate",
-                        strokeColor = "orange",
-                        type = MarkerTrackConfigLineType.LINE
-                    )
-                )
-            )
-        ),
-        "jdk.GCHeapSummary" to SpecialEventType(
-            directDataFields = listOf(
-                Field(
-                    sourceName = "gcId",
-                    type = MarkerType.INT,
-                    label = "GC Identifier"
+            "jdk.NetworkUtilization" to
+                SpecialEventType(
+                    trackConfig =
+                        MarkerTrackConfig(
+                            label = "Network Utilization",
+                            height = MarkerTrackConfigLineHeight.LARGE,
+                            lines =
+                                listOf(
+                                    MarkerTrackLineConfig(
+                                        key = "readRate",
+                                        strokeColor = "blue",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                    MarkerTrackLineConfig(
+                                        key = "writeRate",
+                                        strokeColor = "orange",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                ),
+                        ),
                 ),
-                Field(
-                    sourceName = "when",
-                    type = MarkerType.STRING,
-                    label = "When"
+            "jdk.GCHeapSummary" to
+                SpecialEventType(
+                    directDataFields =
+                        listOf(
+                            Field(
+                                sourceName = "gcId",
+                                type = MarkerType.INT,
+                                label = "GC Identifier",
+                            ),
+                            Field(
+                                sourceName = "when",
+                                type = MarkerType.STRING,
+                                label = "When",
+                            ),
+                            Field(
+                                sourceName = "heapUsed",
+                                type = MarkerType.BYTES,
+                                label = "Heap Used",
+                            ),
+                            Field(
+                                sourceAccessor = { it.getValue<RecordedObject>("heapSpace").getLong("committedSize") },
+                                targetName = "heapCommitted",
+                                type = MarkerType.BYTES,
+                                label = "Heap Committed",
+                            ),
+                            Field(
+                                sourceAccessor = { it.getValue<RecordedObject>("heapSpace").getLong("reservedSize") },
+                                targetName = "heapReserved",
+                                type = MarkerType.BYTES,
+                                label = "Heap Reserved",
+                            ),
+                        ),
+                    trackConfig =
+                        MarkerTrackConfig(
+                            label = "GC Heap Summary",
+                            height = MarkerTrackConfigLineHeight.LARGE,
+                            isPreSelected = true,
+                            lines =
+                                listOf(
+                                    MarkerTrackLineConfig(
+                                        key = "heapUsed",
+                                        strokeColor = "blue",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                    MarkerTrackLineConfig(
+                                        key = "heapCommitted",
+                                        strokeColor = "orange",
+                                        type = MarkerTrackConfigLineType.LINE,
+                                    ),
+                                ),
+                        ),
                 ),
-                Field(
-                    sourceName = "heapUsed",
-                    type = MarkerType.BYTES,
-                    label = "Heap Used"
-                ),
-                Field(
-                    sourceAccessor = { it.getValue<RecordedObject>("heapSpace").getLong("committedSize") },
-                    targetName = "heapCommitted",
-                    type = MarkerType.BYTES,
-                    label = "Heap Committed"
-                ),
-                Field(
-                    sourceAccessor = { it.getValue<RecordedObject>("heapSpace").getLong("reservedSize") },
-                    targetName = "heapReserved",
-                    type = MarkerType.BYTES,
-                    label = "Heap Reserved"
-                ),
-            ),
-            trackConfig = MarkerTrackConfig(
-                label = "GC Heap Summary",
-                height = MarkerTrackConfigLineHeight.LARGE,
-                isPreSelected = true,
-                lines = listOf(
-                    MarkerTrackLineConfig(
-                        key = "heapUsed",
-                        strokeColor = "blue",
-                        type = MarkerTrackConfigLineType.LINE
-                    ),
-                    MarkerTrackLineConfig(
-                        key = "heapCommitted",
-                        strokeColor = "orange",
-                        type = MarkerTrackConfigLineType.LINE
-                    )
-                )
-            )
-        ),
-    )
+        )
 
     operator fun get(eventType: EventType): MarkerSchemaFieldMapping? {
         if (!cache.containsKey(eventType.name)) {
-            val (mapping, schema) = if (isIgnoredEvent(eventType.name)) {
-                null to null
-            } else {
-                processEventType(eventType)
-            }
+            val (mapping, schema) =
+                if (isIgnoredEvent(eventType.name)) {
+                    null to null
+                } else {
+                    processEventType(eventType)
+                }
             if (cache.containsKey(eventType.name)) {
                 return cache[eventType.name] // added in the meantime
             }
@@ -165,10 +180,11 @@ class MarkerSchemaProcessor(val config: Config) {
 
     private fun processEventType(eventType: EventType): Pair<MarkerSchemaFieldMapping, MarkerSchema> {
         val name = eventType.name
-        val display = mutableListOf(
-            MarkerDisplayLocation.MARKER_CHART,
-            MarkerDisplayLocation.MARKER_TABLE
-        )
+        val display =
+            mutableListOf(
+                MarkerDisplayLocation.MARKER_CHART,
+                MarkerDisplayLocation.MARKER_TABLE,
+            )
         if (name in timelineOverviewEvents) {
             display.add(MarkerDisplayLocation.TIMELINE_OVERVIEW)
         } else if (isMemoryEvent(name)) {
@@ -178,69 +194,74 @@ class MarkerSchemaProcessor(val config: Config) {
         if (eventType.hasField("stackTrace")) {
             mapping.add(Field(sourceName = "stackTrace", targetName = "cause", type = MarkerType.STACKTRACE))
         }
-        val addedData = listOfNotNull(
-            eventType.description?.let {
-                MarkerSchemaDataStatic(
-                    "description",
-                    eventType.description
-                )
-            },
-            MarkerSchemaDataString(
-                key = "startTime",
-                label = "Start Time",
-                format = BasicMarkerFormatType.SECONDS,
-                searchable = true
+        val addedData =
+            listOfNotNull(
+                eventType.description?.let {
+                    MarkerSchemaDataStatic(
+                        "description",
+                        eventType.description,
+                    )
+                },
+                MarkerSchemaDataString(
+                    key = "startTime",
+                    label = "Start Time",
+                    format = BasicMarkerFormatType.SECONDS,
+                    searchable = true,
+                ),
             )
-        )
 
         val specialEventType = specialEventTypes[name] ?: SpecialEventType()
 
-        val directData = specialEventType.directDataFields?.let { fields ->
-            fields.map { field ->
-                mapping.add(field)
+        val directData =
+            specialEventType.directDataFields?.let { fields ->
+                fields.map { field ->
+                    mapping.add(field)
+                    MarkerSchemaDataString(
+                        key = field.targetName,
+                        label = field.label ?: field.targetName,
+                        format = field.type.type,
+                        searchable = true,
+                    )
+                }
+            } ?: eventType.fields.filter { it.name != "stackTrace" && !isIgnoredField(it) }.map { v ->
+                val type = MarkerType.fromName(v)
+                val fieldName =
+                    when (v.name) {
+                        "type" -> "type "
+                        "cause" -> "cause "
+                        else -> v.name
+                    }
+                mapping.add(Field(sourceName = v.name, targetName = fieldName, type = type))
                 MarkerSchemaDataString(
-                    key = field.targetName,
-                    label = field.label ?: field.targetName,
-                    format = field.type.type,
-                    searchable = true
+                    key = fieldName,
+                    label = if (v.label != null && v.label.length < 20) v.label else v.name,
+                    format = type.type,
+                    searchable = true,
                 )
             }
-        } ?: eventType.fields.filter { it.name != "stackTrace" && !isIgnoredField(it) }.map { v ->
-            val type = MarkerType.fromName(v)
-            val fieldName = when (v.name) {
-                "type" -> "type "
-                "cause" -> "cause "
-                else -> v.name
-            }
-            mapping.add(Field(sourceName = v.name, targetName = fieldName, type = type))
-            MarkerSchemaDataString(
-                key = fieldName,
-                label = if (v.label != null && v.label.length < 20) v.label else v.name,
-                format = type.type,
-                searchable = true
-            )
-        }
         val data = addedData + directData
         // basic heuristic for finding table label:
         // pick the first three non table fields, prepend with the description
         val directNonTableData = directData.filterNot { it.format is TableMarkerFormat }
         val label = directNonTableData.take(3).joinToString(", ") { "${it.label} = {marker.data.${it.key}}" }
-        val combinedLabel = if (directNonTableData.size == 2 && directNonTableData.first().key == "key") {
-            "{marker.data.key} = {marker.data.${directNonTableData.last().key}}"
-        } else if (directNonTableData.size <= 1 && eventType.description != null) {
-            "${eventType.description}: $label"
-        } else {
-            label
-        }
+        val combinedLabel =
+            if (directNonTableData.size == 2 && directNonTableData.first().key == "key") {
+                "{marker.data.key} = {marker.data.${directNonTableData.last().key}}"
+            } else if (directNonTableData.size <= 1 && eventType.description != null) {
+                "${eventType.description}: $label"
+            } else {
+                label
+            }
         val trackConfig = specialEventType.trackConfig
-        return MarkerSchemaFieldMapping(name, mapping) to MarkerSchema(
-            name,
-            tooltipLabel = eventType.label ?: name,
-            tableLabel = combinedLabel,
-            display = display,
-            data = data,
-            trackConfig = trackConfig
-        )
+        return MarkerSchemaFieldMapping(name, mapping) to
+            MarkerSchema(
+                name,
+                tooltipLabel = eventType.label ?: name,
+                tableLabel = combinedLabel,
+                display = display,
+                data = data,
+                trackConfig = trackConfig,
+            )
     }
 
     fun toMarkerSchemaList() = schemas.distinctBy { it.name }.toList()

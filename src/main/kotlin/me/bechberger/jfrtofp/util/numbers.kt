@@ -16,7 +16,7 @@ fun Long.formatBytes(): String {
     }
     if (this < 1024 * 1024 * 1024) {
         return formatNumber(
-            this / (1024 * 1024.0)
+            this / (1024 * 1024.0),
         ) + "MB"
     }
     return formatNumber(

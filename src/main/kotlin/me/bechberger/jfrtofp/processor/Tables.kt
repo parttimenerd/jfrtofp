@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import java.util.IdentityHashMap
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedFrame
 import jdk.jfr.consumer.RecordedMethod
@@ -35,10 +34,10 @@ import me.bechberger.jfrtofp.util.jsonFormat
 import me.bechberger.jfrtofp.util.pkg
 import me.bechberger.jfrtofp.util.toJsonElement
 import me.bechberger.jfrtofp.util.toMillis
+import java.util.IdentityHashMap
 
 /** Wraps the [SamplesTable] class */
 class SamplesTableWrapper(val tables: Tables) {
-
     data class Item(val stack: IndexIntoStackTable, val time: Milliseconds)
 
     private val items: MutableList<Item> = mutableListOf()
@@ -48,11 +47,11 @@ class SamplesTableWrapper(val tables: Tables) {
             Item(
                 event.stackTrace.let {
                     tables.getStack(
-                        it
+                        it,
                     )
                 },
-                event.startTime.toMillis()
-            )
+                event.startTime.toMillis(),
+            ),
         )
     }
 
@@ -68,18 +67,21 @@ class SamplesTableWrapper(val tables: Tables) {
                 threadCPUDelta.add(0.0)
             } else {
                 threadCPUDelta.add(
-                    (time[i] - time[i - 1]) * cpuLoad(time[i])
+                    (time[i] - time[i - 1]) * cpuLoad(time[i]),
                 )
             }
         }
         return SamplesTable(
             stack = stack,
             time = time,
-            threadCPUDelta = threadCPUDelta
+            threadCPUDelta = threadCPUDelta,
         )
     }
 
-    fun write(json: BasicJSONGenerator, cpuLoad: (Milliseconds) -> Percentage) {
+    fun write(
+        json: BasicJSONGenerator,
+        cpuLoad: (Milliseconds) -> Percentage,
+    ) {
         val samplesTable = toSamplesTable(cpuLoad)
         json.writeStartObject()
         json.writeNumberArrayField("stack", samplesTable.stack)
@@ -98,7 +100,7 @@ data class Tables(
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor,
     val classToUrl: (String, String) -> String? = { _, _ -> null },
-    val defaultUrl: String? = null
+    val defaultUrl: String? = null,
 ) {
     val stringTable: StringTableWrapper = StringTableWrapper()
     val resourceTable: ResourceTableWrapper = ResourceTableWrapper(this)
@@ -110,42 +112,48 @@ data class Tables(
 
     fun getString(string: String) = stringTable[string]
 
-    fun getResource(func: RecordedMethod, isJava: Boolean) = resourceTable.getResource(func, isJava)
+    fun getResource(
+        func: RecordedMethod,
+        isJava: Boolean,
+    ) = resourceTable.getResource(func, isJava)
 
-    fun getFunction(func: RecordedMethod, isJava: Boolean, lineNumber: Int) = funcTable.getFunction(func, isJava, lineNumber)
+    fun getFunction(
+        func: RecordedMethod,
+        isJava: Boolean,
+        lineNumber: Int,
+    ) = funcTable.getFunction(func, isJava, lineNumber)
 
-    fun getMiscFunction(name: String, isNative: Boolean) = funcTable.getMiscFunction(name, isNative)
+    fun getMiscFunction(
+        name: String,
+        isNative: Boolean,
+    ) = funcTable.getMiscFunction(name, isNative)
 
-    fun getFrame(
-        frame: RecordedFrame
-    ) = frameTable.getFrame(frame)
+    fun getFrame(frame: RecordedFrame) = frameTable.getFrame(frame)
 
     fun getMiscFrame(
         name: String,
         category: CategoryE,
         subcategory: String,
-        isNative: Boolean
+        isNative: Boolean,
     ) = frameTable.getMiscFrame(name, category, subcategory, isNative)
 
-    fun getStack(
-        stackTrace: RecordedStackTrace
-    ) = getStack(stackTrace, Int.MAX_VALUE)
+    fun getStack(stackTrace: RecordedStackTrace) = getStack(stackTrace, Int.MAX_VALUE)
 
     fun getStack(
         stackTrace: RecordedStackTrace,
-        maxStackTraceFrames: Int
+        maxStackTraceFrames: Int,
     ) = stackTraceTable.getStack(stackTrace, maxStackTraceFrames)
 
     fun getStack(
         stackTrace: HashedFrameList,
-        maxStackTraceFrames: Int = Int.MAX_VALUE
+        maxStackTraceFrames: Int = Int.MAX_VALUE,
     ) = stackTraceTable.getStack(stackTrace, maxStackTraceFrames)
 
     fun getMiscStack(
         name: String,
         category: CategoryE = CategoryE.MISC,
         subcategory: String = "Other",
-        isNative: Boolean = false
+        isNative: Boolean = false,
     ) = stackTraceTable.getMiscStack(name, category, subcategory, isNative)
 
     fun getHashable(func: RecordedMethod): HashableRecordedMethod {
@@ -156,23 +164,20 @@ data class Tables(
 class RawMarkerTableWrapper(
     val tables: Tables,
     val basicInformation: BasicInformation,
-    val markerSchema: MarkerSchemaProcessor
+    val markerSchema: MarkerSchemaProcessor,
 ) {
-
     data class Item(
         val name: IndexIntoStringTable,
         val startTime: Milliseconds?,
         val endTime: Milliseconds?,
         val phase: MarkerPhase,
         val category: IndexIntoCategoryList,
-        val data: Map<String, JsonElement>
+        val data: Map<String, JsonElement>,
     )
 
     private val items: MutableList<Item> = mutableListOf()
 
-    fun processEvent(
-        event: RecordedEvent
-    ) {
+    fun processEvent(event: RecordedEvent) {
         val fieldMapping: MarkerSchemaFieldMapping = markerSchema[event.eventType] ?: return
         val name = tables.getString(event.eventType.name)
         val startTime = event.startTime.toMillis()
@@ -190,12 +195,14 @@ class RawMarkerTableWrapper(
         data["startTime"] = (event.startTime.toMillis() - basicInformation.startTimeMillis).toJsonElement()
         when (event.eventType.name) {
             "jdk.ObjectAllocationSample" -> {
-                data["_class"] = mapOf(
-                    "stack" to tables.stackTraceTable.getMiscStack(
-                        ByteCodeHelper.formatRecordedClass(event.getClass("objectClass"))
+                data["_class"] =
+                    mapOf(
+                        "stack" to
+                            tables.stackTraceTable.getMiscStack(
+                                ByteCodeHelper.formatRecordedClass(event.getClass("objectClass")),
+                            ),
                     )
-                )
-                    .toJsonElement()
+                        .toJsonElement()
             }
         }
         items.add(Item(name, startTime, endTime, phase, category, data))
@@ -209,7 +216,7 @@ class RawMarkerTableWrapper(
             startTime = sortedItems.map { it.startTime },
             endTime = sortedItems.map { it.endTime },
             phase = sortedItems.map { it.phase },
-            category = sortedItems.map { it.category }
+            category = sortedItems.map { it.category },
         )
     }
 
@@ -245,7 +252,10 @@ class ResourceTableWrapper(val tables: Tables) {
     private val hosts = mutableListOf<IndexIntoStringTable?>()
     private val types = mutableListOf<resourceTypeEnum>()
 
-    internal fun getResource(func: RecordedMethod, isJava: Boolean): IndexIntoResourceTable {
+    internal fun getResource(
+        func: RecordedMethod,
+        isJava: Boolean,
+    ): IndexIntoResourceTable {
         return map.computeIfAbsent(tables.getHashable(func)) {
             val wholeName = func.type.name
             names.add(tables.getString(wholeName.split("$").first()))
@@ -277,7 +287,6 @@ class ResourceTableWrapper(val tables: Tables) {
 }
 
 class FuncTableWrapper(val tables: Tables) {
-
     private val map = mutableMapOf<HashableRecordedMethod, IndexIntoFuncTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
     private val lineNumbers = mutableListOf<Int>()
@@ -291,7 +300,11 @@ class FuncTableWrapper(val tables: Tables) {
     private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
-    internal fun getFunction(func: RecordedMethod, isJava: Boolean, lineNumber: Int): IndexIntoFuncTable {
+    internal fun getFunction(
+        func: RecordedMethod,
+        isJava: Boolean,
+        lineNumber: Int,
+    ): IndexIntoFuncTable {
         return map.computeIfAbsent(tables.getHashable(func)) {
             val index = names.size
             val type = func.type
@@ -308,7 +321,10 @@ class FuncTableWrapper(val tables: Tables) {
         }
     }
 
-    internal fun getMiscFunction(name: String, isNative: Boolean): IndexIntoStringTable {
+    internal fun getMiscFunction(
+        name: String,
+        isNative: Boolean,
+    ): IndexIntoStringTable {
         return miscFunctions.computeIfAbsent(name) {
             val index = names.size
             names.add(tables.getString(name))
@@ -322,15 +338,16 @@ class FuncTableWrapper(val tables: Tables) {
         }
     }
 
-    fun toFuncTable() = FuncTable(
-        name = names,
-        isJS = isJss,
-        relevantForJS = relevantForJss,
-        resource = resourcess,
-        fileName = fileNames,
-        sourceUrl = sourceUrls,
-        lineNumber = lineNumbers
-    )
+    fun toFuncTable() =
+        FuncTable(
+            name = names,
+            isJS = isJss,
+            relevantForJS = relevantForJss,
+            resource = resourcess,
+            fileName = fileNames,
+            sourceUrl = sourceUrls,
+            lineNumber = lineNumbers,
+        )
 
     fun write(json: BasicJSONGenerator) {
         json.writeStartObject()
@@ -351,7 +368,6 @@ class FuncTableWrapper(val tables: Tables) {
 }
 
 class FrameTableWrapper(val tables: Tables) {
-
     private val map = mutableMapOf<Pair<IndexIntoFuncTable, Int?>, IndexIntoFrameTable>()
     private val categories = mutableListOf<IndexIntoCategoryList?>()
     private val subcategories = mutableListOf<IndexIntoSubcategoryListForCategory?>()
@@ -359,9 +375,7 @@ class FrameTableWrapper(val tables: Tables) {
     private val lines = mutableListOf<Int?>()
     private val miscFrames = mutableMapOf<String, IndexIntoStringTable>()
 
-    internal fun getFrame(
-        frame: RecordedFrame
-    ): IndexIntoFrameTable {
+    internal fun getFrame(frame: RecordedFrame): IndexIntoFrameTable {
         // we don't know the start line of the function from JFR
         // so we use -1, to signal the profile viewer that it is invalid
         // Related to https://github.com/parttimenerd/jfrtofp/issues/6
@@ -369,16 +383,18 @@ class FrameTableWrapper(val tables: Tables) {
         val line = if (frame.lineNumber == -1) null else frame.lineNumber
 
         return map.computeIfAbsent(func to line) {
-            val (mainCat, sub) = if (tables.config.useNonProjectCategory && frame.isJavaFrame && tables.config.isNonProjectType(
-                    frame.method.type
-                )
-            ) {
-                CategoryE.NON_PROJECT_JAVA.sub(frame.type)
-            } else if (frame.isJavaFrame) {
-                CategoryE.JAVA.sub(frame.type)
-            } else {
-                CategoryE.CPP.sub(frame.type)
-            }
+            val (mainCat, sub) =
+                if (tables.config.useNonProjectCategory && frame.isJavaFrame &&
+                    tables.config.isNonProjectType(
+                        frame.method.type,
+                    )
+                ) {
+                    CategoryE.NON_PROJECT_JAVA.sub(frame.type)
+                } else if (frame.isJavaFrame) {
+                    CategoryE.JAVA.sub(frame.type)
+                } else {
+                    CategoryE.CPP.sub(frame.type)
+                }
             funcs.add(func)
             categories.add(mainCat)
             subcategories.add(sub)
@@ -391,7 +407,7 @@ class FrameTableWrapper(val tables: Tables) {
         name: String,
         category: CategoryE,
         subcategory: String,
-        isNative: Boolean
+        isNative: Boolean,
     ): IndexIntoFrameTable {
         return miscFrames.computeIfAbsent(name) {
             val (cat, sub) = category.sub(subcategory)
@@ -431,9 +447,7 @@ class FrameTableWrapper(val tables: Tables) {
 typealias HashedFrameList = HashedList<IndexIntoFrameTable>
 
 class StackTableWrapper(val tables: Tables) {
-
     class StackTraceMap {
-
         private val mapPerLength: MutableList<MutableMap<HashedFrameList, IndexIntoStackTable>> = mutableListOf()
 
         private fun getMapForLength(length: Int): MutableMap<HashedFrameList, IndexIntoStackTable> {
@@ -447,7 +461,10 @@ class StackTableWrapper(val tables: Tables) {
 
         operator fun get(stack: HashedFrameList) = getMapForLength(stack.size)[stack]
 
-        operator fun set(stack: HashedFrameList, value: IndexIntoStackTable) {
+        operator fun set(
+            stack: HashedFrameList,
+            value: IndexIntoStackTable,
+        ) {
             getMapForLength(stack.size)[stack] = value
         }
     }
@@ -462,22 +479,23 @@ class StackTableWrapper(val tables: Tables) {
 
     private fun getHashedFrameList(
         tables: Tables,
-        stackTrace: RecordedStackTrace
-    ) =
-        HashedFrameList(stackTrace.frames
+        stackTrace: RecordedStackTrace,
+    ) = HashedFrameList(
+        stackTrace.frames
             .filter { f -> f.method != null }
-            .asReversed().map { tables.getFrame(it) })
+            .asReversed().map { tables.getFrame(it) },
+    )
 
     internal fun getStack(
         stackTrace: RecordedStackTrace,
-        maxStackTraceFrames: Int
+        maxStackTraceFrames: Int,
     ): IndexIntoStackTable {
         return getStack(getHashedFrameList(tables, stackTrace), maxStackTraceFrames)
     }
 
     internal fun getStack(
         stackTrace: HashedFrameList,
-        maxStackTraceFrames: Int = Int.MAX_VALUE
+        maxStackTraceFrames: Int = Int.MAX_VALUE,
     ): IndexIntoStackTable {
         // we obtain the stack recursively
 
@@ -493,14 +511,15 @@ class StackTableWrapper(val tables: Tables) {
         if (!map.contains(stackTrace)) {
             val topFrame = stackTrace.last
             val (cat, sub) = tables.frameTable.getCategoryOfFrame(topFrame)
-            val pref = if (stackTrace.size > 1) {
-                getStack(
-                    stackTrace.prefix(),
-                    maxStackTraceFrames - 1
-                )
-            } else {
-                null
-            }
+            val pref =
+                if (stackTrace.size > 1) {
+                    getStack(
+                        stackTrace.prefix(),
+                        maxStackTraceFrames - 1,
+                    )
+                } else {
+                    null
+                }
             val index = frames.size
             prefix.add(pref)
             frames.add(topFrame)
@@ -515,7 +534,7 @@ class StackTableWrapper(val tables: Tables) {
         name: String,
         category: CategoryE = CategoryE.MISC,
         subcategory: String = "Other",
-        isNative: Boolean = false
+        isNative: Boolean = false,
     ): IndexIntoStackTable {
         return miscStacks.computeIfAbsent(name) {
             val (cat, sub) = category.sub(subcategory)
@@ -527,8 +546,7 @@ class StackTableWrapper(val tables: Tables) {
         }
     }
 
-    fun toStackTable() =
-        StackTable(frame = frames, prefix = prefix, category = categories, subcategory = subcategories)
+    fun toStackTable() = StackTable(frame = frames, prefix = prefix, category = categories, subcategory = subcategories)
 
     fun write(json: BasicJSONGenerator) {
         json.writeStartObject()

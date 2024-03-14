@@ -1,10 +1,10 @@
 package me.bechberger.jfrtofp
 
-import java.io.ByteArrayOutputStream
 import me.bechberger.jfrtofp.processor.Config
-import org.junit.jupiter.api.Test
-import java.nio.file.Path
 import me.bechberger.jfrtofp.processor.SimpleProcessor
+import org.junit.jupiter.api.Test
+import java.io.ByteArrayOutputStream
+import java.nio.file.Path
 
 internal class ProcessorKtTest {
     @Test

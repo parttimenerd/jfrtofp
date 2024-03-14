@@ -14,7 +14,7 @@ fun <T> List<T>.listOfPrefixHashes(): List<Int> {
 class HashedList<T>(
     private val array: List<T>,
     private val end: Int = array.size,
-    private val hashes: List<Int> = array.listOfPrefixHashes()
+    private val hashes: List<Int> = array.listOfPrefixHashes(),
 ) {
     override fun hashCode(): Int {
         return hashes[end - 1]

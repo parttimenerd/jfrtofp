@@ -3,7 +3,7 @@ package me.bechberger.jfrtofp
 import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
 import me.bechberger.jfrtofp.other.SpeedscopeGenerator
 import me.bechberger.jfrtofp.processor.ConfigMixin
-import me.bechberger.jfrtofp.util.store
+import me.bechberger.jfrtofp.processor.SimpleProcessor
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Mixin
@@ -12,7 +12,6 @@ import picocli.CommandLine.Parameters
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
-import me.bechberger.jfrtofp.processor.SimpleProcessor
 import kotlin.io.path.name
 import kotlin.io.path.outputStream
 import kotlin.system.exitProcess
@@ -20,10 +19,9 @@ import kotlin.system.exitProcess
 @Command(
     name = "jfrtofp",
     mixinStandardHelpOptions = true,
-    description = ["Converting JFR files to Firefox Profiler profiles"]
+    description = ["Converting JFR files to Firefox Profiler profiles"],
 )
 class Main : Callable<Int> {
-
     @Parameters(index = "0", description = ["The JFR file to convert"])
     lateinit var file: Path
 
@@ -56,7 +54,7 @@ class Main : Callable<Int> {
                             "d3-flamegraph" -> D3FlamegraphGenerator(file)
                             else -> throw IllegalArgumentException("Unknown mode $mode")
                         }
-                        ).generate().toByteArray()
+                    ).generate().toByteArray(),
                 )
                 return 0
             }

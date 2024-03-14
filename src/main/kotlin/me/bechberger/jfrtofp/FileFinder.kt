@@ -1,15 +1,18 @@
 package me.bechberger.jfrtofp
 
+import me.bechberger.jfrtofp.util.fileExtension
 import java.nio.file.Files
 import java.nio.file.Path
-import me.bechberger.jfrtofp.util.fileExtension
 
 class FileFinder {
-
     private val classToFileCache = mutableMapOf<String, MutableMap<String, Path>>()
     private val filesPerPackage = mutableMapOf<String, MutableList<Path>>()
 
-    private fun addClass(className: String, packageName: String, path: Path) {
+    private fun addClass(
+        className: String,
+        packageName: String,
+        path: Path,
+    ) {
         classToFileCache.putIfAbsent(className, mutableMapOf())
         classToFileCache[className]!![packageName] = path
     }
@@ -48,7 +51,10 @@ class FileFinder {
         }
     }
 
-    fun findFile(packageName: String, className: String): Path? {
+    fun findFile(
+        packageName: String,
+        className: String,
+    ): Path? {
         return classToFileCache[packageName]?.get(className)
     }
 }

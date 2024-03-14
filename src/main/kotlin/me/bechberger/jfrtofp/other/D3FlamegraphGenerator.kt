@@ -5,10 +5,10 @@ import jdk.jfr.consumer.RecordedThread
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.bechberger.jfrtofp.util.realJavaName
 import me.bechberger.jfrtofp.util.sampledThread
 import java.nio.file.Path
 import java.util.IdentityHashMap
-import me.bechberger.jfrtofp.util.realJavaName
 
 class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
     /**
@@ -29,7 +29,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             val type: String,
             val methodName: String,
             val descriptor: String,
-            val samplePerType: MutableMap<String, Int> = mutableMapOf()
+            val samplePerType: MutableMap<String, Int> = mutableMapOf(),
         )
 
         @Serializable
@@ -37,7 +37,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             val name: String,
             var value: Int,
             var children: MutableList<Node> = mutableListOf(),
-            val methodInfo: Info? = null
+            val methodInfo: Info? = null,
         )
 
         val nodeToChildNode = IdentityHashMap<Node, HashMap<RecordedMethod, Node>>()
@@ -48,7 +48,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
         for (sample in samples) {
             assert(
                 sample.eventType.name.equals("jdk.ExecutionSample") ||
-                    sample.eventType.name.equals("jdk.NativeMethodSample")
+                    sample.eventType.name.equals("jdk.NativeMethodSample"),
             )
             if (sample.stackTrace.frames.isEmpty()) {
                 continue
@@ -58,15 +58,17 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             var currentNode = threadNode
             for (frame in sample.stackTrace.frames.asReversed()) {
                 val methodToNode = nodeToChildNode.computeIfAbsent(currentNode) { HashMap() }
-                currentNode = methodToNode.computeIfAbsent(frame.method) { method ->
-                    val node = Node(
-                        shortMethodString(method),
-                        0,
-                        methodInfo = Info(method.type.name, method.name, method.descriptor)
-                    )
-                    currentNode.children.add(node)
-                    return@computeIfAbsent node
-                }
+                currentNode =
+                    methodToNode.computeIfAbsent(frame.method) { method ->
+                        val node =
+                            Node(
+                                shortMethodString(method),
+                                0,
+                                methodInfo = Info(method.type.name, method.name, method.descriptor),
+                            )
+                        currentNode.children.add(node)
+                        return@computeIfAbsent node
+                    }
                 currentNode.value += 1
                 currentNode.methodInfo?.let { info ->
                     info.samplePerType.put(frame.type, info.samplePerType[frame.type] ?: 0)
@@ -75,11 +77,12 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
             threadNode.value += 1
             ovSampleCount += 1
         }
-        val topNode = Node(
-            "Program",
-            ovSampleCount,
-            threads.entries.sortedBy { it.key.javaThreadId }.map { it.value }.toMutableList()
-        )
+        val topNode =
+            Node(
+                "Program",
+                ovSampleCount,
+                threads.entries.sortedBy { it.key.javaThreadId }.map { it.value }.toMutableList(),
+            )
         return Json.encodeToString(topNode)
     }
 }

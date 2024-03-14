@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.util
 
-import java.nio.file.Path
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -8,6 +7,7 @@ import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedThread
 import me.bechberger.jfrtofp.types.Milliseconds
 import org.objectweb.asm.Type
+import java.nio.file.Path
 import java.time.Instant
 
 const val MAX_INTERVAL: Milliseconds = 1000.0
@@ -49,7 +49,7 @@ fun List<Milliseconds>.estimateInterval(): Milliseconds {
     return subset.average()
 }
 
-fun Collection<List<Milliseconds>>.estimateInterval() : Milliseconds {
+fun Collection<List<Milliseconds>>.estimateInterval(): Milliseconds {
     // return the average of the averages weighted by the number of samples
     val filtered = filter { it.size > 5 }
     val averages = filtered.map { it.estimateInterval() }
@@ -59,23 +59,25 @@ fun Collection<List<Milliseconds>>.estimateInterval() : Milliseconds {
     return weightedAverages.sum() / sumOfWeights
 }
 
-fun Collection<List<Milliseconds>>.estimateMinInterval() : Milliseconds {
+fun Collection<List<Milliseconds>>.estimateMinInterval(): Milliseconds {
     // take the minimum of the 10% smallest intervals of all lists with more than 2 samples
     // compute the intervals for each list by list[i] - list[i-1] and ignoring intervals
     // larger than MAX_INTERVAL and <= 0
     val filtered = filter { it.size > 2 }
-    val intervals = filtered.map { list ->
-        list.sorted().zip(list.sorted().drop(1)).map { (a, b) -> b - a }.filter { it > 0 && it < MAX_INTERVAL }
-    }
+    val intervals =
+        filtered.map { list ->
+            list.sorted().zip(list.sorted().drop(1)).map { (a, b) -> b - a }.filter { it > 0 && it < MAX_INTERVAL }
+        }
     val smallestIntervals = intervals.map { it.sorted().subList(0, (it.size * 0.1).toInt()) }
     val minIntervals = smallestIntervals.map { it.minOrNull() }.filterNotNull()
     return minIntervals.minOrNull() ?: 0.0
 }
 
 fun Map<RecordedThread, List<RecordedEvent>>.estimateMinInterval(): Milliseconds {
-    val startTimesPerThread = values.map { events ->
-        events.map { it.startTime.toMillis() }
-    }
+    val startTimesPerThread =
+        values.map { events ->
+            events.map { it.startTime.toMillis() }
+        }
     return startTimesPerThread.estimateMinInterval()
 }
 
@@ -87,27 +89,35 @@ val RecordedEvent.isExecutionSample
     get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")
 
 val RecordedClass.pkg
-    get() = name.split("$")[0].split(".").let {
-        it.subList(0, it.size - 1).joinToString(".")
-    }
+    get() =
+        name.split("$")[0].split(".").let {
+            it.subList(0, it.size - 1).joinToString(".")
+        }
 
 val RecordedClass.className
-    get() = pkg.length.let { p ->
-        if (p == 0) name
-        else name.substring(pkg.length + 1)
-    }
+    get() =
+        pkg.length.let { p ->
+            if (p == 0) {
+                name
+            } else {
+                name.substring(pkg.length + 1)
+            }
+        }
 
 fun RecordedThread.isSystemThread(): Boolean {
-    return !isVirtualThread() && (javaName == null || javaName in listOf(
-        "JFR Periodic Tasks",
-        "JFR Shutdown Hook",
-        "Permissionless thread",
-        "Thread Monitor CTRL-C"
-    ) || threadGroup?.name == "system" || isGCThread() ||
-        javaName.startsWith("JFR ") ||
-        javaName == "Monitor Ctrl-Break" || "CompilerThread" in javaName ||
-        javaName.startsWith("GC Thread") || javaName == "Notification Thread" ||
-        javaName == "Finalizer" || javaName == "Attach Listener")
+    return !isVirtualThread() && (
+        javaName == null || javaName in
+            listOf(
+                "JFR Periodic Tasks",
+                "JFR Shutdown Hook",
+                "Permissionless thread",
+                "Thread Monitor CTRL-C",
+            ) || threadGroup?.name == "system" || isGCThread() ||
+            javaName.startsWith("JFR ") ||
+            javaName == "Monitor Ctrl-Break" || "CompilerThread" in javaName ||
+            javaName.startsWith("GC Thread") || javaName == "Notification Thread" ||
+            javaName == "Finalizer" || javaName == "Attach Listener"
+    )
 }
 
 fun RecordedThread.isVirtualThread(): Boolean {
@@ -115,7 +125,7 @@ fun RecordedThread.isVirtualThread(): Boolean {
 }
 
 val RecordedThread.realJavaName: String?
-    get() = if (javaName.isNullOrEmpty())  (if (isVirtualThread()) "VirtualThread$javaThreadId" else null) else javaName
+    get() = if (javaName.isNullOrEmpty()) (if (isVirtualThread()) "VirtualThread$javaThreadId" else null) else javaName
 
 val RecordedThread.name: String?
     get() = realJavaName ?: osName
@@ -131,8 +141,7 @@ val RecordedEvent.sampledThread: RecordedThread
 val RecordedEvent.sampledThreadOrNull: RecordedThread?
     get() = if (isSampledThreadCorrectProperty) getThread("sampledThread") else thread
 
-fun List<RecordedEvent>.groupByType() =
-    groupBy { if (it.eventType.name == "jdk.NativeMethodSample") "jdk.ExecutionSample" else it.eventType.name }
+fun List<RecordedEvent>.groupByType() = groupBy { if (it.eventType.name == "jdk.NativeMethodSample") "jdk.ExecutionSample" else it.eventType.name }
 
 val RecordedEvent.realThread: RecordedThread?
     get() = thread ?: sampledThreadOrNull ?: (if (hasField("thread")) getThread("thread") else null)
@@ -148,14 +157,13 @@ typealias Percentage = Float
 
 /** Helps to format types and other byte code related things */
 object ByteCodeHelper {
-    fun formatFunctionWithClass(func: RecordedMethod) =
-        "${func.type.className}.${func.name}${formatDescriptor(func.descriptor)}"
+    fun formatFunctionWithClass(func: RecordedMethod) = "${func.type.className}.${func.name}${formatDescriptor(func.descriptor)}"
 
     fun formatDescriptor(descriptor: String): String {
         val args = "(${
-        Type.getArgumentTypes(descriptor).joinToString(", ") {
-            formatByteCodeType(it, omitPackages = true)
-        }})"
+            Type.getArgumentTypes(descriptor).joinToString(", ") {
+                formatByteCodeType(it, omitPackages = true)
+            }})"
         if (Type.getReturnType(descriptor) == Type.VOID_TYPE) {
             return args
         }
@@ -171,31 +179,38 @@ object ByteCodeHelper {
         }
     }
 
-    fun formatByteCodeType(type: String, omitPackages: Boolean) =
-        formatByteCodeType(Type.getType(type), omitPackages)
+    fun formatByteCodeType(
+        type: String,
+        omitPackages: Boolean,
+    ) = formatByteCodeType(Type.getType(type), omitPackages)
 
-    fun formatByteCodeType(type: Type, omitPackages: Boolean): String = when (type.sort) {
-        Type.VOID -> "void"
-        Type.BOOLEAN -> "boolean"
-        Type.CHAR -> "char"
-        Type.BYTE -> "byte"
-        Type.SHORT -> "short"
-        Type.INT -> "int"
-        Type.FLOAT -> "float"
-        Type.LONG -> "long"
-        Type.DOUBLE -> "double"
-        Type.ARRAY -> formatByteCodeType(type.elementType, omitPackages) + "[]".repeat(type.dimensions)
-        Type.OBJECT -> if (omitPackages) shortenClassName(type.className) else type.className
-        else -> throw IllegalArgumentException("Unknown type sort: ${type.sort}")
-    }
+    fun formatByteCodeType(
+        type: Type,
+        omitPackages: Boolean,
+    ): String =
+        when (type.sort) {
+            Type.VOID -> "void"
+            Type.BOOLEAN -> "boolean"
+            Type.CHAR -> "char"
+            Type.BYTE -> "byte"
+            Type.SHORT -> "short"
+            Type.INT -> "int"
+            Type.FLOAT -> "float"
+            Type.LONG -> "long"
+            Type.DOUBLE -> "double"
+            Type.ARRAY -> formatByteCodeType(type.elementType, omitPackages) + "[]".repeat(type.dimensions)
+            Type.OBJECT -> if (omitPackages) shortenClassName(type.className) else type.className
+            else -> throw IllegalArgumentException("Unknown type sort: ${type.sort}")
+        }
 
     fun formatRecordedClass(klass: RecordedClass): String {
         val name = klass.getString("name")
-        val byteCodeName = if (name.startsWith("[")) {
-            name
-        } else {
-            "L$name;"
-        }
+        val byteCodeName =
+            if (name.startsWith("[")) {
+                name
+            } else {
+                "L$name;"
+            }
         return formatByteCodeType(byteCodeName, omitPackages = false)
     }
 }
@@ -204,7 +219,6 @@ fun EventType.hasField(name: String) = getField(name) != null
 
 val Path.fileExtension: String
     get() = fileName.toString().substringAfterLast('.', "")
-
 
 /**
  * The RecordMethods are per chunk, it isn't possible, therefore, to use them as keys in maps directly

@@ -2,13 +2,13 @@ package me.bechberger.jfrtofp
 
 import me.bechberger.jfrtofp.processor.Config
 import me.bechberger.jfrtofp.processor.SimpleProcessor
+import me.bechberger.jfrtofp.util.fileExtension
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicLong
-import me.bechberger.jfrtofp.util.fileExtension
 import kotlin.math.max
 import kotlin.streams.asSequence
 
@@ -16,23 +16,30 @@ import kotlin.streams.asSequence
 class FileCache(
     location: Path? = null,
     maxSize: Long = 2_000_000_000,
-    private val extension: String = ".json.gz"
+    private val extension: String = ".json.gz",
 ) {
     private val tmpLocation = location ?: DEFAULT_LOCATION
+
     init {
         try {
             Files.createDirectories(tmpLocation)
-        } catch (_: IOException) {}
+        } catch (_: IOException) {
+        }
     }
+
     private val maxSize = AtomicLong(maxSize)
 
     fun close() {
         try {
             tmpLocation.toFile().deleteRecursively()
-        } catch (_: IOException) {}
+        } catch (_: IOException) {
+        }
     }
 
-    fun get(jfrFile: Path, config: Config): Path {
+    fun get(
+        jfrFile: Path,
+        config: Config,
+    ): Path {
         synchronized(this) {
             val filePath = filePath(jfrFile, config)
             if (!Files.exists(filePath)) {
@@ -42,11 +49,18 @@ class FileCache(
         }
     }
 
-    fun has(jfrFile: Path, config: Config): Boolean {
+    fun has(
+        jfrFile: Path,
+        config: Config,
+    ): Boolean {
         return Files.exists(filePath(jfrFile, config))
     }
 
-    private fun create(jfrFile: Path, config: Config, filePath: Path) {
+    private fun create(
+        jfrFile: Path,
+        config: Config,
+        filePath: Path,
+    ) {
         Files.newOutputStream(filePath).use { baas ->
             val processor = SimpleProcessor(config, jfrFile)
             when (filePath.fileExtension) {
@@ -69,11 +83,17 @@ class FileCache(
 
     private fun cacheSize() = Files.list(tmpLocation).mapToLong { it.toFile().length() }.sum()
 
-    private fun filePath(jfrFile: Path, config: Config): Path {
+    private fun filePath(
+        jfrFile: Path,
+        config: Config,
+    ): Path {
         return tmpLocation.resolve(hashSum(jfrFile, config) + extension)
     }
 
-    private fun hashSum(jfrFile: Path, config: Config): String {
+    private fun hashSum(
+        jfrFile: Path,
+        config: Config,
+    ): String {
         return hashSum(jfrFile) + hashSum(config)
     }
 

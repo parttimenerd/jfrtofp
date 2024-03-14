@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.processor
 
-import java.nio.file.Path
 import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
@@ -11,6 +10,7 @@ import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.util.toMillis
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
+import java.nio.file.Path
 
 /** different types of memory properties that can be shown in the track time line view, currently all have to be part of the GCHeapSummary event */
 enum class MemoryProperty(val propName: String, val description: String = propName, val actualProperty: String) {
@@ -40,9 +40,10 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
         override fun getValue(event: RecordedEvent): Long {
             return event.getLong("heapUsed")
         }
-    };
+    }, ;
 
     abstract fun isUsable(event: RecordedEvent): Boolean
+
     abstract fun getValue(event: RecordedEvent): Long
 
     /** returns [(time in millis, memory in bytes)] */
@@ -67,12 +68,13 @@ class ConfigMixin {
     @CommandLine.Option(names = ["--source-url"], description = ["Source url to use in the profile for Firefox Profiler"])
     var sourceUrl: String? = null
 
-    fun toConfig() = Config(
-        nonProjectPackagePrefixes = nonProjectPackagePrefixes,
-        maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
-        maxMiscSamplesPerThread = maxMiscSamplesPerThread,
-        sourceUrl = sourceUrl
-    )
+    fun toConfig() =
+        Config(
+            nonProjectPackagePrefixes = nonProjectPackagePrefixes,
+            maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
+            maxMiscSamplesPerThread = maxMiscSamplesPerThread,
+            sourceUrl = sourceUrl,
+        )
 
     companion object {
         fun parseConfig(args: Array<String>): Config {
@@ -98,7 +100,6 @@ data class Config(
     /** an objectsample weigth will be associated with the nearest stack trace
      * or the common prefix stack trace of the two nearest if the minimal time distance is > 0.25 * interval */
     val enableAllocations: Boolean = true,
-
     /** maximum number of stack frames */
     val maxThreads: Int = Int.MAX_VALUE,
     val omitEventThreadProperty: Boolean = true,
@@ -129,25 +130,26 @@ data class Config(
             listOf(
                 "java.", "javax.", "kotlin.", "jdk.",
                 "com.google.", "org.apache.", "org.spring.",
-                "sun.", "scala."
+                "sun.", "scala.",
             )
-        val DEFAULT_IGNORED_EVENTS = listOf(
-            "jdk.ActiveSetting",
-            "jdk.ActiveRecording",
-            "jdk.BooleanFlag",
-            "jdk.IntFlag",
-            "jdk.DoubleFlag",
-            "jdk.LongFlag",
-            "jdk.NativeLibrary",
-            "jdk.StringFlag",
-            "jdk.UnsignedIntFlag",
-            "jdk.UnsignedLongFlag",
-            "jdk.InitialSystemProperty",
-            "jdk.InitialEnvironmentVariable",
-            "jdk.SystemProcess",
-            "jdk.ModuleExport",
-            "jdk.ModuleRequire"
-        )
+        val DEFAULT_IGNORED_EVENTS =
+            listOf(
+                "jdk.ActiveSetting",
+                "jdk.ActiveRecording",
+                "jdk.BooleanFlag",
+                "jdk.IntFlag",
+                "jdk.DoubleFlag",
+                "jdk.LongFlag",
+                "jdk.NativeLibrary",
+                "jdk.StringFlag",
+                "jdk.UnsignedIntFlag",
+                "jdk.UnsignedLongFlag",
+                "jdk.InitialSystemProperty",
+                "jdk.InitialEnvironmentVariable",
+                "jdk.SystemProcess",
+                "jdk.ModuleExport",
+                "jdk.ModuleRequire",
+            )
         const val DEFAULT_MIN_ITEMS_PER_THREAD = 3
     }
 }

@@ -90,7 +90,7 @@ enum class BasicMarkerFormatType : MarkerFormatType {
 @Serializable
 data class TableColumnFormat(
     val type: MarkerFormatType? = null,
-    val label: String? = null
+    val label: String? = null,
 )
 
 @Experimental
@@ -98,10 +98,11 @@ data class TableColumnFormat(
 data class TableMarkerFormat(val columns: List<TableColumnFormat>, val type: String = "table") : MarkerFormatType
 
 object MarkerFormatTypeSerializer : JsonContentPolymorphicSerializer<MarkerFormatType>(MarkerFormatType::class) {
-    override fun selectDeserializer(element: JsonElement) = when (element) {
-        is JsonPrimitive -> BasicMarkerFormatType.serializer()
-        else -> TableMarkerFormat.serializer()
-    }
+    override fun selectDeserializer(element: JsonElement) =
+        when (element) {
+            is JsonPrimitive -> BasicMarkerFormatType.serializer()
+            else -> TableMarkerFormat.serializer()
+        }
 }
 
 // A list of all the valid locations to surface this marker.
@@ -134,13 +135,14 @@ enum class MarkerDisplayLocation {
 
     // TODO - This is not supported yet.
     @SerialName("stack-chart")
-    STACK_CHART
+    STACK_CHART,
 }
 
 @Serializable
 enum class MarkerTrackConfigLineType {
     @SerialName("bar")
     BAR,
+
     @SerialName("line")
     LINE,
 }
@@ -154,17 +156,19 @@ data class MarkerTrackLineConfig(
     val width: Int? = null,
     // "line" or "bar"
     val type: MarkerTrackConfigLineType? = null,
-    val isPreScaled: Boolean? = null
+    val isPreScaled: Boolean? = null,
 )
 
 @Serializable
 enum class MarkerTrackConfigLineHeight {
     @SerialName("small")
     SMALL,
+
     @SerialName("medium")
     MEDIUM,
+
     @SerialName("large")
-    LARGE
+    LARGE,
 }
 
 @Serializable
@@ -173,34 +177,28 @@ data class MarkerTrackConfig(
     val tooltip: String? = null,
     val height: MarkerTrackConfigLineHeight? = null,
     val isPreSelected: Boolean = false,
-    val lines: List<MarkerTrackLineConfig>
+    val lines: List<MarkerTrackLineConfig>,
 )
 
 @Serializable
 data class MarkerSchema(
     // The unique identifier for this marker.
     val name: String, // e.g. "CC"
-
     // The label of how this marker should be displayed in the UI.
     // If none is provided, then the name is used.
     val tooltipLabel: String? = null, // e.g. "Cycle Collect"
-
     // This is how the marker shows up in the Marker Table description.
     // If none is provided, then the name is used.
     val tableLabel: String? = null, // e.g. "{marker.data.eventType} – DOMEvent"
-
     // This is how the marker shows up in the Marker Chart, where it is drawn
     // on the screen as a bar.
     // If none is provided, then the name is used.
     val chartLabel: String? = null,
-
     // The locations to display
     val display: List<MarkerDisplayLocation>,
-
     val data: List<MarkerSchemaData>,
-
     @Experimental
-    val trackConfig: MarkerTrackConfig? = null
+    val trackConfig: MarkerTrackConfig? = null,
 )
 
 @Serializable(with = MarkerSchemaDataSerializer::class)
@@ -213,21 +211,22 @@ data class MarkerSchemaDataString(
     val format: MarkerFormatType,
     val searchable: Boolean? = null,
     // hidden in the side bar and tooltips?
-    val isHidden: Boolean? = null
+    val isHidden: Boolean? = null,
 ) : MarkerSchemaData()
 
 // This type is a static bit of text that will be displayed
 @Serializable
 data class MarkerSchemaDataStatic(
     val label: String,
-    val value: String
+    val value: String,
 ) : MarkerSchemaData()
 
 object MarkerSchemaDataSerializer : JsonContentPolymorphicSerializer<MarkerSchemaData>(MarkerSchemaData::class) {
-    override fun selectDeserializer(element: JsonElement) = when {
-        "format" in element.jsonObject -> MarkerSchemaDataString.serializer()
-        else -> MarkerSchemaDataStatic.serializer()
-    }
+    override fun selectDeserializer(element: JsonElement) =
+        when {
+            "format" in element.jsonObject -> MarkerSchemaDataString.serializer()
+            else -> MarkerSchemaDataStatic.serializer()
+        }
 }
 
 typealias MarkerSchemaByName = ObjectMap<MarkerSchema>
@@ -252,5 +251,5 @@ typealias MarkerPhase = Int
 data class MarkerData(
     /** marker schema */
     val type: String,
-    val cause: IndexIntoStackTable? = null
+    val cause: IndexIntoStackTable? = null,
 )

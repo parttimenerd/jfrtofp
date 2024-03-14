@@ -13,17 +13,16 @@ import me.bechberger.jfrtofp.util.toMicros
 import java.nio.file.Path
 import java.util.Objects
 
-internal val jsonFormat = Json {
-    prettyPrint = false
-    encodeDefaults = true
-}
+internal val jsonFormat =
+    Json {
+        prettyPrint = false
+        encodeDefaults = true
+    }
 
 abstract class BaseGenerator(jfrFile: Path) {
-
     private val events = RecordingFile.readAllEvents(jfrFile)
 
-    internal fun List<RecordedEvent>.perThread(): Map<RecordedThread, List<RecordedEvent>> =
-        groupBy { it.sampledThread }
+    internal fun List<RecordedEvent>.perThread(): Map<RecordedThread, List<RecordedEvent>> = groupBy { it.sampledThread }
 
     internal fun executionSamples() = events.filter { isExecutionSample(it) }
 
@@ -32,7 +31,7 @@ abstract class BaseGenerator(jfrFile: Path) {
         return Triple(
             events.filter { isExecutionSample(it) },
             grouped.mapValues { it.value.minOf { v -> v.startTime.toMicros() } },
-            grouped.mapValues { it.value.maxOf { v -> v.endTime.toMicros() } }
+            grouped.mapValues { it.value.maxOf { v -> v.endTime.toMicros() } },
         )
     }
 
@@ -40,7 +39,7 @@ abstract class BaseGenerator(jfrFile: Path) {
     internal data class RecordedEventWithTiming(
         val event: RecordedEvent,
         val startTime: Long,
-        val endTime: Long
+        val endTime: Long,
     )
 
     internal fun List<RecordedEvent>.withTiming(defaultTiming: Long): List<RecordedEventWithTiming> {
@@ -52,8 +51,8 @@ abstract class BaseGenerator(jfrFile: Path) {
                 RecordedEventWithTiming(
                     this[0],
                     this[0].startTime.toMicros(),
-                    this[0].startTime.toMicros() + defaultTiming
-                )
+                    this[0].startTime.toMicros() + defaultTiming,
+                ),
             )
         }
         return map { RecordedEventWithTiming(it, it.startTime.toMicros(), it.endTime.toMicros() + defaultTiming) }
@@ -95,13 +94,14 @@ abstract class BaseGenerator(jfrFile: Path) {
             return (
                 nameParts.subList(0, nameParts.size - 1)
                     .map { it.substring(0, 1) } + nameParts[nameParts.size - 1] + method.name
-                ).joinToString(".")
+            ).joinToString(".")
         }
 
         val RecordedClass.pkg
-            get() = name.split(".").let {
-                it.subList(0, it.size - 1).joinToString(".")
-            }
+            get() =
+                name.split(".").let {
+                    it.subList(0, it.size - 1).joinToString(".")
+                }
 
         @Suppress("unused")
         val RecordedClass.className

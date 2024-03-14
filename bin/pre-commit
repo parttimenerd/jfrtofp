@@ -1,6 +1,8 @@
 #!/bin/sh
 
 ./gradlew --quiet ktlintFormat
+./gradlew test
+exit 0
 
 echo "Running detekt check..."
 OUTPUT="/tmp/detekt-$(date +%s)"

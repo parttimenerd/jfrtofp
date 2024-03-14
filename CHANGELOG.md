@@ -1,9 +1,12 @@
 # jfrtofp
 
-## [Unreleased]
+## Unreleased
 
-- Ignore stack trace frames with null methods #14
-- Handle virtual threads better #14
+## [0.0.4]
+
+- Ignore stack trace frames with null methods
+- Handle virtual threads better
+- Use ktlint again for auto formatting in pre-commit hook
 
 ## [0.0.3]
 
