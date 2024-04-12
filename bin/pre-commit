@@ -1,6 +1,6 @@
 #!/bin/sh
 
-./gradlew --quiet ktlintFormat
+#./gradlew --quiet ktlintFormat
 ./gradlew test
 exit 0
 
