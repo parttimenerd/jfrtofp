@@ -4,13 +4,13 @@ import jdk.jfr.EventType
 import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedObject
-import me.bechberger.jfrtofp.Main
 import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.util.toMillis
 import org.jline.reader.impl.DefaultParser
 import picocli.CommandLine
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 /** different types of memory properties that can be shown in the track time line view, currently all have to be part of the GCHeapSummary event */
 enum class MemoryProperty(val propName: String, val description: String = propName, val actualProperty: String) {
@@ -80,14 +80,31 @@ class ConfigMixin {
             executionSampleType = executionSampleType.replace(".", "\\.").replace("*", ".*").toRegex()
         )
 
+    @CommandLine.Command(
+        name = "jfrtofp",
+        mixinStandardHelpOptions = true,
+        description = ["Converting JFR files to Firefox Profiler profiles"],
+    )
+    class Main : Callable<Int> {
+        @CommandLine.Mixin
+        var config: ConfigMixin = ConfigMixin()
+
+        override fun call(): Int {
+            return 0
+        }
+    }
+
     companion object {
         fun parseConfig(args: Array<String>): Config {
+            if (args.isEmpty()) {
+                return Config()
+            }
             val main = Main()
             CommandLine(main).parseArgs(*args)
             return main.config.toConfig()
         }
 
-        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().toTypedArray())
+        fun parseConfig(args: String): Config = parseConfig(DefaultParser().parse(args, 0).words().filter { it.isNotBlank() }.toTypedArray())
     }
 }
 
