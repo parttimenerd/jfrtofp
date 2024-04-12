@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Fix handling of files without execution samplesqq
+- Fix handling of files without execution samples
   - (see https://github.com/parttimenerd/intellij-profiler-plugin/issues/30)
+- Add `--execution-sample-type` to specify the type of execution samples to use
 
 ## [0.0.4]
 

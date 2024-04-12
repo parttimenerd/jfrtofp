@@ -12,6 +12,8 @@ import me.bechberger.jfrtofp.util.sampledThreadOrNull
 import me.bechberger.jfrtofp.util.toMicros
 import java.nio.file.Path
 import java.util.Objects
+import me.bechberger.jfrtofp.processor.Config
+import me.bechberger.jfrtofp.processor.ConfigMixin
 
 internal val jsonFormat =
     Json {
@@ -19,7 +21,7 @@ internal val jsonFormat =
         encodeDefaults = true
     }
 
-abstract class BaseGenerator(jfrFile: Path) {
+abstract class BaseGenerator(jfrFile: Path, val config: Config) {
     private val events = RecordingFile.readAllEvents(jfrFile)
 
     internal fun List<RecordedEvent>.perThread(): Map<RecordedThread, List<RecordedEvent>> = groupBy { it.sampledThread }
@@ -85,9 +87,9 @@ abstract class BaseGenerator(jfrFile: Path) {
 
     abstract fun generate(): String
 
+    fun isExecutionSample(event: RecordedEvent) = config.executionSampleType.matches(event.eventType.name)
+
     companion object {
-        fun isExecutionSample(event: RecordedEvent) =
-            event.eventType.name.equals("jdk.ExecutionSample") || event.eventType.name.equals("jdk.NativeMethodSample")
 
         fun shortMethodString(method: RecordedMethod): String {
             val nameParts = method.type.name.split(".")

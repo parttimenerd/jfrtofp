@@ -85,9 +85,6 @@ fun estimateIntervalInMillis(startTimesPerThread: Map<Long, List<Milliseconds>>)
     return startTimesPerThread.values.estimateInterval()
 }
 
-val RecordedEvent.isExecutionSample
-    get() = eventType.name.equals("jdk.ExecutionSample") || eventType.name.equals("jdk.NativeMethodSample")
-
 val RecordedClass.pkg
     get() =
         name.split("$")[0].split(".").let {
@@ -132,16 +129,11 @@ val RecordedThread.name: String?
 
 fun RecordedThread.isGCThread() = !isVirtualThread() && osName.startsWith("GC Thread") && javaName == null
 
-private val RecordedEvent.isSampledThreadCorrectProperty
-    get() = eventType.name == "jdk.NativeMethodSample" || eventType.name == "jdk.ExecutionSample"
-
 val RecordedEvent.sampledThread: RecordedThread
     get() = sampledThreadOrNull!!
 
 val RecordedEvent.sampledThreadOrNull: RecordedThread?
-    get() = if (isSampledThreadCorrectProperty) getThread("sampledThread") else thread
-
-fun List<RecordedEvent>.groupByType() = groupBy { if (it.eventType.name == "jdk.NativeMethodSample") "jdk.ExecutionSample" else it.eventType.name }
+    get() = if (this.hasField("sampledThread")) getThread("sampledThread") else thread
 
 val RecordedEvent.realThread: RecordedThread?
     get() = thread ?: sampledThreadOrNull ?: (if (hasField("thread")) getThread("thread") else null)

@@ -9,8 +9,9 @@ import me.bechberger.jfrtofp.util.realJavaName
 import me.bechberger.jfrtofp.util.sampledThread
 import java.nio.file.Path
 import java.util.IdentityHashMap
+import me.bechberger.jfrtofp.processor.Config
 
-class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
+class D3FlamegraphGenerator(jfrFile: Path, config: Config) : BaseGenerator(jfrFile, config) {
     /**
      * Returns a JSON string for https://github.com/spiermar/d3-flame-graph, entries have the format
      * <code>
@@ -47,8 +48,7 @@ class D3FlamegraphGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
         val threads = mutableMapOf<RecordedThread, Node>()
         for (sample in samples) {
             assert(
-                sample.eventType.name.equals("jdk.ExecutionSample") ||
-                    sample.eventType.name.equals("jdk.NativeMethodSample"),
+                config.isExecutionSample(sample)
             )
             if (sample.stackTrace.frames.isEmpty()) {
                 continue

@@ -33,7 +33,6 @@ import me.bechberger.jfrtofp.util.BasicJSONGenerator
 import me.bechberger.jfrtofp.util.Percentage
 import me.bechberger.jfrtofp.util.encodeToJSONStream
 import me.bechberger.jfrtofp.util.estimateIntervalInMillis
-import me.bechberger.jfrtofp.util.isExecutionSample
 import me.bechberger.jfrtofp.util.isGCThread
 import me.bechberger.jfrtofp.util.isSystemThread
 import me.bechberger.jfrtofp.util.jsonFormat
@@ -225,7 +224,7 @@ class ThreadProcessor(
                 thread = it
             }
         }
-        if (event.isExecutionSample) {
+        if (config.isExecutionSample(event)) {
             processExecutionSample(event)
             _items++
         } else {
@@ -593,7 +592,7 @@ data class BasicInformation(
                         cpuInformation = event
                     } else if (osInformation == null && event.eventType.name == "jdk.OSInformation") {
                         osInformation = event
-                    } else if (event.isExecutionSample) {
+                    } else if (config.isExecutionSample(event)) {
                         if (backupMainThreadId == null) {
                             backupMainThreadId = event.sampledThread.id
                             backupStartTime = event.startTime
@@ -855,7 +854,7 @@ internal class MetaProcessor(
                         gcThreads.add(it.id)
                     }
                 }
-            if (event.isExecutionSample) {
+            if (config.isExecutionSample(event)) {
                 threadInfo.executionSampleCount++
             } else {
                 threadInfo.otherSampleCount++

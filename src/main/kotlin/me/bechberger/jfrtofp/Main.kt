@@ -50,8 +50,8 @@ class Main : Callable<Int> {
                         ?: Path.of(file.toString().replace(".jfr", ".json")),
                     (
                         when (mode) {
-                            "speedscope" -> SpeedscopeGenerator(file)
-                            "d3-flamegraph" -> D3FlamegraphGenerator(file)
+                            "speedscope" -> SpeedscopeGenerator(file, config.toConfig())
+                            "d3-flamegraph" -> D3FlamegraphGenerator(file, config.toConfig())
                             else -> throw IllegalArgumentException("Unknown mode $mode")
                         }
                     ).generate().toByteArray(),

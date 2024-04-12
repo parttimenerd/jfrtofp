@@ -68,12 +68,16 @@ class ConfigMixin {
     @CommandLine.Option(names = ["--source-url"], description = ["Source url to use in the profile for Firefox Profiler"])
     var sourceUrl: String? = null
 
+    @CommandLine.Option(names = ["--execution-sample-type"], description = ["Glob pattern (* and | supported) that matches the used execution sample type"])
+    var executionSampleType: String = "jdk.ExecutionSample|jdk.NativeMethodSample"
+
     fun toConfig() =
         Config(
             nonProjectPackagePrefixes = nonProjectPackagePrefixes,
             maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
             maxMiscSamplesPerThread = maxMiscSamplesPerThread,
             sourceUrl = sourceUrl,
+            executionSampleType = executionSampleType.replace(".", "\\.").replace("*", ".*").toRegex()
         )
 
     companion object {
@@ -121,7 +125,11 @@ data class Config(
     val ignoredEvents: Set<String> = DEFAULT_IGNORED_EVENTS.toSet(),
     /** minimum number of samples or markers a event has to have */
     val minRequiredItemsPerThread: Int = DEFAULT_MIN_ITEMS_PER_THREAD,
+    val executionSampleType: Regex = "jdk.ExecutionSample|jdk.NativeMethodSample".toRegex(),
 ) {
+    fun isExecutionSample(event: RecordedEvent) = isExecutionSample(event.eventType.name)
+    fun isExecutionSample(eventType: String) = executionSampleType.matches(eventType)
+
     companion object {
         val DEFAULT_ADDED_MEMORY_PROPERTIES = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP)
         const val DEFAULT_INITIAL_VISIBLE_THREADS = 10

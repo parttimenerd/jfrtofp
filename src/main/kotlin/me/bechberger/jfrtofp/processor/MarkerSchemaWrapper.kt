@@ -47,10 +47,7 @@ class MarkerSchemaProcessor(val config: Config) {
     private val timelineMemoryEvents = setOf("memory", "gc", "GarbageCollection")
 
     private fun isIgnoredEvent(event: String) =
-        event.equals("jdk.ExecutionSample") ||
-            event.equals(
-                "jdk.NativeMethodSample",
-            )
+        config.isExecutionSample(event)
 
     private fun isIgnoredField(field: ValueDescriptor) =
         (config.omitEventThreadProperty && field.name == "eventThread") ||

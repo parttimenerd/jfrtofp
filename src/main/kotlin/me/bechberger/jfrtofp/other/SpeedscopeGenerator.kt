@@ -7,6 +7,7 @@ import kotlinx.serialization.encodeToString
 import me.bechberger.jfrtofp.util.estimateMinInterval
 import me.bechberger.jfrtofp.util.realJavaName
 import java.nio.file.Path
+import me.bechberger.jfrtofp.processor.Config
 import kotlin.math.max
 import kotlin.math.roundToLong
 
@@ -84,7 +85,7 @@ internal object Speedscope {
     }
 }
 
-class SpeedscopeGenerator(jfrFile: Path) : BaseGenerator(jfrFile) {
+class SpeedscopeGenerator(jfrFile: Path, config: Config) : BaseGenerator(jfrFile, config) {
     /**
      * Returns the traces in a format suitable for speedscope
      * (https://github.com/jlfwong/speedscope/blob/main/src/lib/file-format-spec.ts)
