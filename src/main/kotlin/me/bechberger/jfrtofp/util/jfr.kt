@@ -130,7 +130,9 @@ val RecordedThread.name: String?
 fun RecordedThread.isGCThread() = !isVirtualThread() && osName.startsWith("GC Thread") && javaName == null
 
 val RecordedEvent.sampledThread: RecordedThread
-    get() = sampledThreadOrNull!!
+    get() {
+        return sampledThreadOrNull!!
+    }
 
 val RecordedEvent.sampledThreadOrNull: RecordedThread?
     get() = if (this.hasField("sampledThread")) getThread("sampledThread") else thread
