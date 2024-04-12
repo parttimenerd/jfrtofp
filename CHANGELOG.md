@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix handling of files without execution samplesqq
+  - (see https://github.com/parttimenerd/intellij-profiler-plugin/issues/30)
+
 ## [0.0.4]
 
 - Ignore stack trace frames with null methods

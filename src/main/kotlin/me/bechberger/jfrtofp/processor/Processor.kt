@@ -581,9 +581,6 @@ data class BasicInformation(
                     )
                 ) {
                     val event = file.readEvent()
-                    if (event.realThread?.realJavaName == null) {
-                        continue
-                    }
                     event.realThread?.let {
                         if (it.realJavaName == "main") {
                             mainThreadId = it.id
@@ -623,8 +620,22 @@ data class BasicInformation(
             if (startTime == null) {
                 startTime = backupStartTime
             }
-            if (mainThreadId == null || startTime == null) {
-                error("Could not find main thread or start time")
+            if (startTime == null) {
+                error("Could not find start time")
+            }
+            if (mainThreadId == null) {
+                return BasicInformation(
+                    config,
+                    -1,
+                    startTime!!,
+                    Instant.ofEpochSecond(0, 0),
+                    jvmInformation,
+                    cpuInformation,
+                    osInformation,
+                    initialSystemProperties,
+                    initialEnvironmentVariables,
+                    systemProcesses,
+                )
             }
             val estimatedIntervalInMillis = estimateIntervalInMillis(sampledStartTimesPerThread)
             val estimatedInterval =
