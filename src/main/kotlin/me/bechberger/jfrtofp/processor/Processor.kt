@@ -40,7 +40,7 @@ import me.bechberger.jfrtofp.util.jsonFormat
 import me.bechberger.jfrtofp.util.name
 import me.bechberger.jfrtofp.util.realJavaName
 import me.bechberger.jfrtofp.util.realThread
-import me.bechberger.jfrtofp.util.sampledThread
+import me.bechberger.jfrtofp.util.sampledThreadOrNull
 import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
@@ -384,11 +384,16 @@ data class BasicInformation(
                     } else if (osInformation == null && event.eventType.name == "jdk.OSInformation") {
                         osInformation = event
                     } else if (config.isExecutionSample(event)) {
+                        val sampleThread = event.sampledThreadOrNull
+                        if (sampleThread == null) {
+                            eventCount++
+                            continue
+                        }
                         if (backupMainThreadId == null) {
-                            backupMainThreadId = event.sampledThread.id
+                            backupMainThreadId = sampleThread.id
                             backupStartTime = event.startTime
                         }
-                        val sampleStartTimes = sampledStartTimesPerThread.getOrPut(event.sampledThread.id) { mutableListOf() }
+                        val sampleStartTimes = sampledStartTimesPerThread.getOrPut(sampleThread.id) { mutableListOf() }
                         if (sampledStartTimesCount < maxRecordedEventsConsideredForIntervalEstimation) {
                             sampleStartTimes.add(event.startTime.toMillis())
                             sampledStartTimesCount++
