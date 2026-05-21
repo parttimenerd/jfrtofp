@@ -5,7 +5,7 @@ JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
 
 *This is in alpha state, it does not work with really large JFR files and might still have bugs.*
 
-It works best with this custom [Firefox Profiler fork](https://github.com/parttimenerd/firefox-profiler/tree/merged)
+It works best with this custom [Firefox Profiler fork](https://github.com/parttimenerd/firefox-profiler/tree/jfrtofp)
 which includes many of our own PRs which are not yet upstream (and might be less stable).
 
 ## Basic Usage
