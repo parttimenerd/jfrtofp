@@ -43,12 +43,12 @@ But this is considered experimental and not the main focus of this project.
 ## Usage as a Library
 ```groovy
 dependencies {
-    implementation 'com.github.parttimenerd:jfrtofp:0.0.4-SNAPSHOT'
+    implementation 'com.github.parttimenerd:jfrtofp:0.0.5-SNAPSHOT'
 }
 
 repositories {
     maven {
-        url = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+        url = "https://central.sonatype.com/repository/maven-snapshots/"
     }
 }
 ```

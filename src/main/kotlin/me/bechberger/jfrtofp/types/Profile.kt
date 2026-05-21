@@ -57,9 +57,11 @@ typealias Weight = Long
  * If a pid is a number, then it is the int value that came from the profiler.
  * However, if it is a g, then it is an unique value generated during
  * the profile processing. This happens for older profiles before the pid was
- * collected, or for merged profiles.
+ * collected, or for merged profiles. Since v47 it is serialized as a string.
  */
-typealias Pid = Long
+typealias Pid = String
+
+typealias IndexIntoSourceTable = Int
 
 typealias Bytes = Long
 
@@ -132,12 +134,9 @@ typealias Missing = String
 @Serializable
 data class StackTable(
     val frame: List<IndexIntoFrameTable>,
-    // Imported profiles may not have categories. In this case fill the array with 0s.
-    val category: List<IndexIntoCategoryList>,
-    val subcategory: List<IndexIntoSubcategoryListForCategory>,
     val prefix: List<IndexIntoStackTable?>,
     @Required
-    val length: Int = category.size,
+    val length: Int = frame.size,
 )
 
 /**
@@ -390,11 +389,7 @@ data class FrameTable(
     @Required
     val innerWindowID: List<InnerWindowID?> = List(length) { null },
     @Required
-    val implementation: List<IndexIntoStringTable?> = List(length) { null },
-    @Required
     val column: List<Int?> = List(length) { null },
-    @Required
-    val optimizations: List<Int?> = List(line.size) { null },
 )
 
 /**
@@ -421,42 +416,18 @@ data class FuncTable(
     // isJS and relevantForJS describe the function type. Non-JavaScript functions
     // can be marked as "relevant for JS" so that for example DOM API label functions
     // will show up in any JavaScript stack views.
-    // It may be worth combining these two fields into one:
-    // https://github.com/firefox-devtools/profiler/issues/2543
-    // NOTE: use for "own code" vs "JVM/library/native code" (depending on the configuration)
     val isJS: List<Boolean>,
     val relevantForJS: List<Boolean>,
     // The resource describes "Which bag of code did this function come from?".
-    // For JS functions, the resource is of type addon, webhost, otherhost, or url.
-    // For native functions, the resource is of type library.
-    // For labels and for other unidentified functions, we set the resource to -1.
     val resource: List<IndexIntoResourceTable>,
-    // These are non-null for JS functions only. The line and column describe the
-    // location of the *start* of the JS function. As for the information about which
-    // which lines / columns inside the function were actually hit during execution,
-    // that information is stored in the frameTable, not in the funcTable.
-    val fileName: List<IndexIntoStringTable?>,
+    // Index into the shared SourceTable; null when no source is associated with the function.
+    val source: List<IndexIntoSourceTable?>,
     @Required
     var length: Int = name.size,
     @Required
     val lineNumber: List<Int?> = List(length) { null },
     @Required
     val columnNumber: List<Int?> = List(length) { null },
-    // This is the optional information on the url of the source file
-    // that this function can be seen in specifically.
-    // Prefixing the URL with `post|` signifies that the URL should
-    // be called with a POST request and the response discarded (the request
-    // includes `name`, `file`, `line` and `column` information if present).
-    // `post|` URLs can have another format: `post|url|alternative` where
-    // the alternative URL is used if the origin of the url does not have
-    // the same origin as the profile viewer. This allows to supply a public
-    // fallback URL for local profile URLs.
-    // These POST requests are used by imported profiles to trigger events
-    // outside of the profiler.
-    // Urls may currently only start with `https://raw.githubusercontent.com/` or
-    // `http://localhost`.
-    @Experimental
-    val sourceUrl: List<IndexIntoStringTable?>? = null,
 )
 
 /**
@@ -613,7 +584,6 @@ data class JsTracerTable(
 data class CounterSamplesTable(
     val time: List<Milliseconds>,
     // The number of times the Counter's "number" was changed since the previous sample.
-    // This property was mandatory until the format version 42, it was made optional in 43.
     val number: List<Int>? = null,
     /* The count of the data, for instance for memory this would be bytes.
        real count[i] = sum(count[0], ..., count[i])*/
@@ -623,9 +593,31 @@ data class CounterSamplesTable(
 )
 
 @Serializable
-data class SampleGroup(
-    val id: Int,
-    val samples: CounterSamplesTable,
+enum class CounterGraphType {
+    @SerialName("line-accumulated")
+    LINE_ACCUMULATED,
+
+    @SerialName("line-rate")
+    LINE_RATE,
+
+    @SerialName("line")
+    LINE,
+
+    @SerialName("bar")
+    BAR,
+}
+
+@Serializable
+data class CounterDisplayConfig(
+    val graphType: CounterGraphType,
+    // unit string used for tooltips, e.g. "bytes", "%", "ms"
+    val unit: String,
+    // canonical color name (grey, orange, brown, ...).
+    val color: String,
+    // null = not surfaced via the marker timeline.
+    val markerSchemaLocation: MarkerDisplayLocation? = null,
+    val sortWeight: Int? = null,
+    val label: String? = null,
 )
 
 @Serializable
@@ -636,7 +628,8 @@ data class Counter(
     val description: String,
     val pid: Pid,
     val mainThreadIndex: ThreadIndex,
-    val sampleGroups: List<SampleGroup>,
+    val samples: CounterSamplesTable,
+    val display: CounterDisplayConfig,
 )
 
 /**
@@ -732,21 +725,6 @@ data class SampleLikeMarkerConfig(
  */
 @Serializable
 data class Thread(
-    /*
-    This list of process types is defined here:
-    https://searchfox.org/mozilla-central/rev/819cd31a93fd50b7167979607371878c4d6f18e8/xpcom/build/nsXULAppAPI.h#383
-    | 'default'
-    | 'plugin'
-    | 'tab'
-    | 'ipdlunittest'
-    | 'geckomediaplugin'
-    | 'gpu'
-    | 'pdfium'
-    | 'vr'
-    // Unknown process type:
-    // https://searchfox.org/mozilla-central/rev/819cd31a93fd50b7167979607371878c4d6f18e8/toolkit/xre/nsEmbedFunctions.cpp#232
-    | 'invalid'
-     */
     @Required
     val processType: String = "default",
     val processStartupTime: Milliseconds,
@@ -754,16 +732,10 @@ data class Thread(
     val registerTime: Milliseconds,
     val unregisterTime: Milliseconds? = null,
     val pausedRanges: List<PausedRange> = listOf(),
-    /** name it GeckMain and it gets to be the process */
+    /** name it GeckoMain and it gets to be the process */
     val name: String,
-    /*
-    The eTLD+1 of the isolated content process if provided by the back-end.
-    It will be undefined if:
-    - Fission is not enabled.
-    - It's not an isolated content process.
-    - It's a sanitized profile.
-    - It's a profile from an older Firefox which doesn't include this field (introduced in Firefox 80).
-     */
+    // True if this thread is the main thread of its process.
+    val isMainThread: Boolean,
     @Suppress("ConstructorParameterNaming")
     val `eTLD+1`: String? = null,
     val processName: String? = null,
@@ -771,48 +743,15 @@ data class Thread(
     val pid: Pid,
     val tid: Tid,
     val samples: SamplesTable,
-    // this table cannot be empty
     val jsAllocations: JsAllocationsTable? = null,
     val nativeAllocations: NativeAllocationsTable? = null,
     val markers: RawMarkerTable,
-    val stackTable: StackTable,
-    val frameTable: FrameTable,
-    /*
-    Strings for profiles are collected into a single table, and are referred to by
-    their index by other tables.
-
-    but the gTable is apparently not required
-     */
-    val gTable: List<String>,
-    val funcTable: FuncTable,
-    // val stringTable: StringTable,
-    val stringArray: List<String>,
-    val resourceTable: ResourceTable,
-    val nativeSymbols: NativeSymbolTable,
     val jsTracer: JsTracerTable? = null,
-    /*
-    If present and true, this thread was launched for a private browsing session only.
-    When false, it can still contain private browsing data if the profile was
-    captured in a non-fission browser.
-    It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
-    had no extra attribute at all.
-     */
     val isPrivateBrowsing: Boolean? = null,
-    /*
-    If present and non-0, the number represents the container this thread was loaded in.
-    It's absent in Firefox 97 and before, or in Firefox 98+ when this thread
-    had no extra attribute at all.
-     */
     val userContextId: Int? = null,
     @Experimental
     val sampleLikeMarkersConfig: List<SampleLikeMarkerConfig>? = null,
-) {
-    init {
-        //  assert(jsAllocations.isNullOrEmpty())
-        // assert(nativeAllocations.isNullOrEmpty())
-//        assert(samples.isNullOrEmpty())
-    }
-}
+)
 
 @Serializable
 data class ExtensionTable(
@@ -901,7 +840,7 @@ data class ProfileMeta(
     val version: Int = 25,
     // This is the processed profile format version.
     @Required
-    val preprocessedProfileVersion: Int = 41,
+    val preprocessedProfileVersion: Int = 62,
     // The following fields are most likely included in Gecko profiles, but are marked
     // optional for imported or converted profiles.
     // The XPCOM ABI (Application Binary Interface) name, taking the form:
@@ -1024,6 +963,42 @@ data class ExtraProfileInfoSection(
 )
 
 /**
+ * Shared lookup tables. Since v60 these tables live at the profile level
+ * (rather than per-thread) so that multiple threads in a process can refer
+ * to the same stacks/frames/funcs/resources/native-symbols.
+ */
+@Serializable
+data class SharedData(
+    val stringArray: List<String>,
+    val stackTable: StackTable,
+    val frameTable: FrameTable,
+    val funcTable: FuncTable,
+    val resourceTable: ResourceTable,
+    val nativeSymbols: NativeSymbolTable,
+    val sources: SourceTable,
+)
+
+/**
+ * The shared sources table, indexed by FuncTable.source. Each row describes
+ * the file a function comes from.
+ */
+@Serializable
+data class SourceTable(
+    @Required
+    val length: Int,
+    // Stable identifier for this source (formerly `uuid`).
+    val id: List<String?>,
+    val filename: List<IndexIntoStringTable>,
+    val startLine: List<Int>,
+    val startColumn: List<Int>,
+    val sourceMapURL: List<IndexIntoStringTable?>,
+    // Fork-only: per-source override URL. When set, the source view fetches
+    // directly from this URL instead of going through the symbol server.
+    @Experimental
+    val sourceUrl: List<IndexIntoStringTable?>? = null,
+)
+
+/**
  * All data for a processed profile.
  *
  * might be the SerializableProfile class
@@ -1033,12 +1008,8 @@ data class Profile(
     val meta: ProfileMeta,
     val libs: List<Lib>,
     val pages: PageList? = null,
-    // The counters list is optional only because old profilers may not have them.
-    // An upgrader could be written to make this non-optional.
+    val shared: SharedData,
     val counters: List<Counter>? = null,
-    // The profilerOverhead list is optional only because old profilers may not
-    // have them. An upgrader could be written to make this non-optional.
-    // This is list because there is a profiler overhead per process.
     val profilerOverhead: ProfilerOverhead? = null,
     val threads: List<Thread>,
     val profilingLog: ProfilingLog? = null,

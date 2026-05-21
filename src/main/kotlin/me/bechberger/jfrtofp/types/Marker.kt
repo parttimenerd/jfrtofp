@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonContentPolymorphicSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 
 @Serializable(with = MarkerFormatTypeSerializer::class)
 sealed interface MarkerFormatType
@@ -139,28 +138,19 @@ enum class MarkerDisplayLocation {
 }
 
 @Serializable
-enum class MarkerTrackConfigLineType {
+enum class MarkerGraphType {
     @SerialName("bar")
     BAR,
 
     @SerialName("line")
     LINE,
+
+    @SerialName("line-filled")
+    LINE_FILLED,
 }
 
 @Serializable
-data class MarkerTrackLineConfig(
-    val key: String,
-    val fillColor: String? = null,
-    // magenta, purple, teal, green, yellow, orange, red, transparent, grey, string
-    val strokeColor: String? = null,
-    val width: Int? = null,
-    // "line" or "bar"
-    val type: MarkerTrackConfigLineType? = null,
-    val isPreScaled: Boolean? = null,
-)
-
-@Serializable
-enum class MarkerTrackConfigLineHeight {
+enum class MarkerGraphHeight {
     @SerialName("small")
     SMALL,
 
@@ -172,12 +162,19 @@ enum class MarkerTrackConfigLineHeight {
 }
 
 @Serializable
-data class MarkerTrackConfig(
-    val label: String,
-    val tooltip: String? = null,
-    val height: MarkerTrackConfigLineHeight? = null,
-    val isPreSelected: Boolean = false,
-    val lines: List<MarkerTrackLineConfig>,
+data class MarkerGraph(
+    val key: String,
+    val type: MarkerGraphType,
+    // Canonical color name (grey, orange, brown, ...).
+    val color: String? = null,
+    // Fork-only: arbitrary CSS color, takes priority over color.
+    val fillColor: String? = null,
+    // Fork-only: arbitrary CSS color, takes priority over color.
+    val strokeColor: String? = null,
+    // Fork-only: values are already in [0,1], skip rescaling.
+    val isPreScaled: Boolean? = null,
+    // Fork-only: line width override in CSS px.
+    val width: Int? = null,
 )
 
 @Serializable
@@ -196,38 +193,27 @@ data class MarkerSchema(
     val chartLabel: String? = null,
     // The locations to display
     val display: List<MarkerDisplayLocation>,
-    val data: List<MarkerSchemaData>,
-    @Experimental
-    val trackConfig: MarkerTrackConfig? = null,
+    val fields: List<MarkerSchemaField>,
+    // Static description text shown in the sidebar/tooltips.
+    val description: String? = null,
+    // Fork-only: per-graph configuration for custom marker tracks.
+    val graphs: List<MarkerGraph>? = null,
+    // Fork-only: track display label (defaults to marker name).
+    val trackLabel: String? = null,
+    // Fork-only: graph track height.
+    val graphHeight: MarkerGraphHeight? = null,
+    // Fork-only: track is shown by default.
+    val isPreSelected: Boolean? = null,
 )
 
-@Serializable(with = MarkerSchemaDataSerializer::class)
-sealed class MarkerSchemaData
-
 @Serializable
-data class MarkerSchemaDataString(
+data class MarkerSchemaField(
     val key: String,
     val label: String? = null,
     val format: MarkerFormatType,
-    val searchable: Boolean? = null,
     // hidden in the side bar and tooltips?
     val isHidden: Boolean? = null,
-) : MarkerSchemaData()
-
-// This type is a static bit of text that will be displayed
-@Serializable
-data class MarkerSchemaDataStatic(
-    val label: String,
-    val value: String,
-) : MarkerSchemaData()
-
-object MarkerSchemaDataSerializer : JsonContentPolymorphicSerializer<MarkerSchemaData>(MarkerSchemaData::class) {
-    override fun selectDeserializer(element: JsonElement) =
-        when {
-            "format" in element.jsonObject -> MarkerSchemaDataString.serializer()
-            else -> MarkerSchemaDataStatic.serializer()
-        }
-}
+)
 
 typealias MarkerSchemaByName = ObjectMap<MarkerSchema>
 

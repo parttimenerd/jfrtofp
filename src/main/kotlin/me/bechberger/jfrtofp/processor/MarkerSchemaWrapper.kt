@@ -6,13 +6,11 @@ import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedObject
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.MarkerDisplayLocation
+import me.bechberger.jfrtofp.types.MarkerGraph
+import me.bechberger.jfrtofp.types.MarkerGraphHeight
+import me.bechberger.jfrtofp.types.MarkerGraphType
 import me.bechberger.jfrtofp.types.MarkerSchema
-import me.bechberger.jfrtofp.types.MarkerSchemaDataStatic
-import me.bechberger.jfrtofp.types.MarkerSchemaDataString
-import me.bechberger.jfrtofp.types.MarkerTrackConfig
-import me.bechberger.jfrtofp.types.MarkerTrackConfigLineHeight
-import me.bechberger.jfrtofp.types.MarkerTrackConfigLineType
-import me.bechberger.jfrtofp.types.MarkerTrackLineConfig
+import me.bechberger.jfrtofp.types.MarkerSchemaField
 import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.util.hasField
 import java.util.concurrent.ConcurrentHashMap
@@ -55,51 +53,51 @@ class MarkerSchemaProcessor(val config: Config) {
 
     private fun isMemoryEvent(event: String) = timelineMemoryEvents.any { it in event }
 
-    data class SpecialEventType(val directDataFields: List<Field>? = null, val trackConfig: MarkerTrackConfig? = null)
+    data class SpecialEventType(
+        val directDataFields: List<Field>? = null,
+        val graphs: List<MarkerGraph>? = null,
+        val trackLabel: String? = null,
+        val graphHeight: MarkerGraphHeight? = null,
+        val isPreSelected: Boolean? = null,
+    )
 
     private val specialEventTypes =
         mapOf<String, SpecialEventType>(
             "jdk.CPULoad" to
                 SpecialEventType(
-                    trackConfig =
-                        MarkerTrackConfig(
-                            label = "CPU Load",
-                            height = MarkerTrackConfigLineHeight.LARGE,
-                            lines =
-                                listOf(
-                                    MarkerTrackLineConfig(
-                                        key = "jvmSystem",
-                                        strokeColor = "orange",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                    MarkerTrackLineConfig(
-                                        key = "jvmUser",
-                                        strokeColor = "blue",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                ),
-                            isPreSelected = true,
+                    trackLabel = "CPU Load",
+                    graphHeight = MarkerGraphHeight.LARGE,
+                    isPreSelected = true,
+                    graphs =
+                        listOf(
+                            MarkerGraph(
+                                key = "jvmSystem",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "orange",
+                            ),
+                            MarkerGraph(
+                                key = "jvmUser",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "blue",
+                            ),
                         ),
                 ),
             "jdk.NetworkUtilization" to
                 SpecialEventType(
-                    trackConfig =
-                        MarkerTrackConfig(
-                            label = "Network Utilization",
-                            height = MarkerTrackConfigLineHeight.LARGE,
-                            lines =
-                                listOf(
-                                    MarkerTrackLineConfig(
-                                        key = "readRate",
-                                        strokeColor = "blue",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                    MarkerTrackLineConfig(
-                                        key = "writeRate",
-                                        strokeColor = "orange",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                ),
+                    trackLabel = "Network Utilization",
+                    graphHeight = MarkerGraphHeight.LARGE,
+                    graphs =
+                        listOf(
+                            MarkerGraph(
+                                key = "readRate",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "blue",
+                            ),
+                            MarkerGraph(
+                                key = "writeRate",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "orange",
+                            ),
                         ),
                 ),
             "jdk.GCHeapSummary" to
@@ -134,24 +132,21 @@ class MarkerSchemaProcessor(val config: Config) {
                                 label = "Heap Reserved",
                             ),
                         ),
-                    trackConfig =
-                        MarkerTrackConfig(
-                            label = "GC Heap Summary",
-                            height = MarkerTrackConfigLineHeight.LARGE,
-                            isPreSelected = true,
-                            lines =
-                                listOf(
-                                    MarkerTrackLineConfig(
-                                        key = "heapUsed",
-                                        strokeColor = "blue",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                    MarkerTrackLineConfig(
-                                        key = "heapCommitted",
-                                        strokeColor = "orange",
-                                        type = MarkerTrackConfigLineType.LINE,
-                                    ),
-                                ),
+                    trackLabel = "GC Heap Summary",
+                    graphHeight = MarkerGraphHeight.LARGE,
+                    isPreSelected = true,
+                    graphs =
+                        listOf(
+                            MarkerGraph(
+                                key = "heapUsed",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "blue",
+                            ),
+                            MarkerGraph(
+                                key = "heapCommitted",
+                                type = MarkerGraphType.LINE,
+                                strokeColor = "orange",
+                            ),
                         ),
                 ),
         )
@@ -192,18 +187,11 @@ class MarkerSchemaProcessor(val config: Config) {
             mapping.add(Field(sourceName = "stackTrace", targetName = "cause", type = MarkerType.STACKTRACE))
         }
         val addedData =
-            listOfNotNull(
-                eventType.description?.let {
-                    MarkerSchemaDataStatic(
-                        "description",
-                        eventType.description,
-                    )
-                },
-                MarkerSchemaDataString(
+            listOf(
+                MarkerSchemaField(
                     key = "startTime",
                     label = "Start Time",
                     format = BasicMarkerFormatType.SECONDS,
-                    searchable = true,
                 ),
             )
 
@@ -213,11 +201,10 @@ class MarkerSchemaProcessor(val config: Config) {
             specialEventType.directDataFields?.let { fields ->
                 fields.map { field ->
                     mapping.add(field)
-                    MarkerSchemaDataString(
+                    MarkerSchemaField(
                         key = field.targetName,
                         label = field.label ?: field.targetName,
                         format = field.type.type,
-                        searchable = true,
                     )
                 }
             } ?: eventType.fields.filter { it.name != "stackTrace" && !isIgnoredField(it) }.map { v ->
@@ -229,14 +216,13 @@ class MarkerSchemaProcessor(val config: Config) {
                         else -> v.name
                     }
                 mapping.add(Field(sourceName = v.name, targetName = fieldName, type = type))
-                MarkerSchemaDataString(
+                MarkerSchemaField(
                     key = fieldName,
                     label = if (v.label != null && v.label.length < 20) v.label else v.name,
                     format = type.type,
-                    searchable = true,
                 )
             }
-        val data = addedData + directData
+        val fields = addedData + directData
         // basic heuristic for finding table label:
         // pick the first three non table fields, prepend with the description
         val directNonTableData = directData.filterNot { it.format is TableMarkerFormat }
@@ -249,15 +235,18 @@ class MarkerSchemaProcessor(val config: Config) {
             } else {
                 label
             }
-        val trackConfig = specialEventType.trackConfig
         return MarkerSchemaFieldMapping(name, mapping) to
             MarkerSchema(
                 name,
                 tooltipLabel = eventType.label ?: name,
                 tableLabel = combinedLabel,
                 display = display,
-                data = data,
-                trackConfig = trackConfig,
+                fields = fields,
+                description = eventType.description,
+                graphs = specialEventType.graphs,
+                trackLabel = specialEventType.trackLabel,
+                graphHeight = specialEventType.graphHeight,
+                isPreSelected = specialEventType.isPreSelected,
             )
     }
 

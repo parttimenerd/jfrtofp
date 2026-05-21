@@ -13,6 +13,7 @@ import me.bechberger.jfrtofp.types.IndexIntoCategoryList
 import me.bechberger.jfrtofp.types.IndexIntoFrameTable
 import me.bechberger.jfrtofp.types.IndexIntoFuncTable
 import me.bechberger.jfrtofp.types.IndexIntoResourceTable
+import me.bechberger.jfrtofp.types.IndexIntoSourceTable
 import me.bechberger.jfrtofp.types.IndexIntoStackTable
 import me.bechberger.jfrtofp.types.IndexIntoStringTable
 import me.bechberger.jfrtofp.types.IndexIntoSubcategoryListForCategory
@@ -21,6 +22,7 @@ import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.RawMarkerTable
 import me.bechberger.jfrtofp.types.ResourceTable
 import me.bechberger.jfrtofp.types.SamplesTable
+import me.bechberger.jfrtofp.types.SourceTable
 import me.bechberger.jfrtofp.types.StackTable
 import me.bechberger.jfrtofp.types.resourceTypeEnum
 import me.bechberger.jfrtofp.util.BasicJSONGenerator
@@ -60,14 +62,15 @@ class SamplesTableWrapper(val tables: Tables) {
         val time = sortedItems.map { it.time }
         val stack = sortedItems.map { it.stack }
 
-        /** in ms,    delta[i] = [time[i] - time[i - 1]] * [usage in this interval] */
+        // Declared unit is µs (see SampleUnits.threadCPUDelta in MetaProcessor).
+        // delta_µs = (time_ms[i] - time_ms[i-1]) * 1000 * cpuLoad
         val threadCPUDelta: MutableList<Milliseconds> = mutableListOf(0.0)
         for (i in 1 until time.size) {
             if (i == time.size - 1) {
                 threadCPUDelta.add(0.0)
             } else {
                 threadCPUDelta.add(
-                    (time[i] - time[i - 1]) * cpuLoad(time[i]),
+                    (time[i] - time[i - 1]) * 1000.0 * cpuLoad(time[i]),
                 )
             }
         }
@@ -106,8 +109,8 @@ data class Tables(
     val resourceTable: ResourceTableWrapper = ResourceTableWrapper(this)
     val frameTable: FrameTableWrapper = FrameTableWrapper(this)
     val stackTraceTable: StackTableWrapper = StackTableWrapper(this)
+    val sourceTable: SourceTableWrapper = SourceTableWrapper(this)
     val funcTable: FuncTableWrapper = FuncTableWrapper(this)
-    val rawMarkerTable: RawMarkerTableWrapper = RawMarkerTableWrapper(this, basicInformation, markerSchema)
     val methodToHashable: IdentityHashMap<RecordedMethod, HashableRecordedMethod> = IdentityHashMap()
 
     fun getString(string: String) = stringTable[string]
@@ -286,6 +289,47 @@ class ResourceTableWrapper(val tables: Tables) {
         get() = names.size
 }
 
+class SourceTableWrapper(val tables: Tables) {
+    // Key: (filename string index, sourceUrl string index or null) — collapse identical sources.
+    private val map = mutableMapOf<Pair<IndexIntoStringTable, IndexIntoStringTable?>, IndexIntoSourceTable>()
+    private val ids = mutableListOf<String?>()
+    private val filenames = mutableListOf<IndexIntoStringTable>()
+    private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
+
+    /** Returns null if no filename is provided. */
+    fun getOrCreate(
+        filename: String?,
+        sourceUrl: String?,
+    ): IndexIntoSourceTable? {
+        if (filename == null) return null
+        val filenameIdx = tables.getString(filename)
+        val sourceUrlIdx = sourceUrl?.let { tables.getString(it) }
+        return map.computeIfAbsent(filenameIdx to sourceUrlIdx) {
+            val index = ids.size
+            ids.add(null)
+            filenames.add(filenameIdx)
+            sourceUrls.add(sourceUrlIdx)
+            index
+        }
+    }
+
+    fun toSourceTable(): SourceTable {
+        val length = filenames.size
+        return SourceTable(
+            length = length,
+            id = ids,
+            filename = filenames,
+            startLine = List(length) { -1 },
+            startColumn = List(length) { -1 },
+            sourceMapURL = List(length) { null },
+            sourceUrl = if (sourceUrls.any { it != null }) sourceUrls else null,
+        )
+    }
+
+    val size: Int
+        get() = filenames.size
+}
+
 class FuncTableWrapper(val tables: Tables) {
     private val map = mutableMapOf<HashableRecordedMethod, IndexIntoFuncTable>()
     private val names = mutableListOf<IndexIntoStringTable>()
@@ -293,11 +337,7 @@ class FuncTableWrapper(val tables: Tables) {
     private val isJss = mutableListOf<Boolean>()
     private val relevantForJss = mutableListOf<Boolean>()
     private val resourcess = mutableListOf<IndexIntoResourceTable>() // -1 if not present
-    private val fileNames = mutableListOf<IndexIntoStringTable?>()
-
-    // This is the optional information on the url of the source file
-    // that this function can be seen in specifically.
-    private val sourceUrls = mutableListOf<IndexIntoStringTable?>()
+    private val sources = mutableListOf<IndexIntoSourceTable?>()
     private val miscFunctions = mutableMapOf<String, IndexIntoFuncTable>()
 
     internal fun getFunction(
@@ -308,14 +348,14 @@ class FuncTableWrapper(val tables: Tables) {
         return map.computeIfAbsent(tables.getHashable(func)) {
             val index = names.size
             val type = func.type
-            val url =
-                tables.classToUrl(type.pkg, type.className)
-            sourceUrls.add(url?.let { tables.getString(it) })
+            val url = tables.classToUrl(type.pkg, type.className)
+            // No filename information from JFR, only the class name; use it so the
+            // shared SourceTable can carry a sourceUrl for this function.
+            sources.add(tables.sourceTable.getOrCreate(filename = type.name, sourceUrl = url))
             names.add(tables.getString(ByteCodeHelper.formatFunctionWithClass(func)))
             isJss.add(isJava)
             relevantForJss.add(true)
             resourcess.add(tables.getResource(func, isJava))
-            fileNames.add(null)
             lineNumbers.add(lineNumber)
             index
         }
@@ -331,8 +371,7 @@ class FuncTableWrapper(val tables: Tables) {
             isJss.add(isNative)
             relevantForJss.add(true)
             resourcess.add(-1)
-            fileNames.add(null)
-            sourceUrls.add(tables.defaultUrl?.let { tables.getString(it) })
+            sources.add(tables.sourceTable.getOrCreate(filename = null, sourceUrl = tables.defaultUrl))
             lineNumbers.add(-1)
             index
         }
@@ -344,8 +383,7 @@ class FuncTableWrapper(val tables: Tables) {
             isJS = isJss,
             relevantForJS = relevantForJss,
             resource = resourcess,
-            fileName = fileNames,
-            sourceUrl = sourceUrls,
+            source = sources,
             lineNumber = lineNumbers,
         )
 
@@ -355,8 +393,7 @@ class FuncTableWrapper(val tables: Tables) {
         json.writeBooleanArrayField("isJS", isJss)
         json.writeBooleanArrayField("relevantForJS", relevantForJss)
         json.writeNumberArrayField("resource", resourcess)
-        json.writeNumberArrayField("fileName", fileNames)
-        json.writeNumberArrayField("sourceUrl", sourceUrls)
+        json.writeNumberArrayField("source", sources)
         json.writeSimpleField("length", size)
         json.writeNumberArrayField("lineNumber", lineNumbers)
         json.writeNullArrayField("columnNumber", size, last = true)
@@ -364,7 +401,7 @@ class FuncTableWrapper(val tables: Tables) {
     }
 
     val size: Int
-        get() = fileNames.size
+        get() = sources.size
 }
 
 class FrameTableWrapper(val tables: Tables) {
@@ -427,7 +464,7 @@ class FrameTableWrapper(val tables: Tables) {
         json.writeNumberArrayField("line", lines)
         json.writeSingleValueArrayField("address", "-1", size)
         json.writeSingleValueArrayField("inlineDepth", "0", size)
-        for (name in listOf("nativeSymbol", "innerWindowID", "implementation", "column", "optimizations")) {
+        for (name in listOf("nativeSymbol", "innerWindowID", "column")) {
             json.writeNullArrayField(name, size)
         }
         json.writeSimpleField("length", size, last = true)
@@ -473,8 +510,6 @@ class StackTableWrapper(val tables: Tables) {
 
     private val frames = mutableListOf<IndexIntoFrameTable>()
     private val prefix = mutableListOf<IndexIntoFrameTable?>()
-    private val categories = mutableListOf<IndexIntoCategoryList>()
-    private val subcategories = mutableListOf<IndexIntoSubcategoryListForCategory>()
     private val miscStacks = mutableMapOf<String, IndexIntoStringTable>()
 
     private fun getHashedFrameList(
@@ -510,7 +545,6 @@ class StackTableWrapper(val tables: Tables) {
         // this map contains all stack traces and their prefixes
         if (!map.contains(stackTrace)) {
             val topFrame = stackTrace.last
-            val (cat, sub) = tables.frameTable.getCategoryOfFrame(topFrame)
             val pref =
                 if (stackTrace.size > 1) {
                     getStack(
@@ -523,8 +557,6 @@ class StackTableWrapper(val tables: Tables) {
             val index = frames.size
             prefix.add(pref)
             frames.add(topFrame)
-            categories.add(cat)
-            subcategories.add(sub)
             map[stackTrace] = index
         }
         return map[stackTrace]!!
@@ -537,23 +569,18 @@ class StackTableWrapper(val tables: Tables) {
         isNative: Boolean = false,
     ): IndexIntoStackTable {
         return miscStacks.computeIfAbsent(name) {
-            val (cat, sub) = category.sub(subcategory)
-            categories.add(cat)
-            subcategories.add(sub)
             prefix.add(null)
             frames.add(tables.getMiscFrame(name, category, subcategory, isNative))
             prefix.size - 1
         }
     }
 
-    fun toStackTable() = StackTable(frame = frames, prefix = prefix, category = categories, subcategory = subcategories)
+    fun toStackTable() = StackTable(frame = frames, prefix = prefix)
 
     fun write(json: BasicJSONGenerator) {
         json.writeStartObject()
         json.writeNumberArrayField("frame", frames)
         json.writeNumberArrayField("prefix", prefix)
-        json.writeNumberArrayField("category", categories)
-        json.writeNumberArrayField("subcategory", subcategories)
         json.writeSimpleField("length", size, last = true)
         json.writeEndObject()
     }

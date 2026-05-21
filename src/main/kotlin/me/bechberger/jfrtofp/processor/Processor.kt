@@ -5,33 +5,34 @@ import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedThread
 import jdk.jfr.consumer.RecordingFile
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToStream
 import me.bechberger.jfrtofp.FileFinder
 import me.bechberger.jfrtofp.types.BasicMarkerFormatType
 import me.bechberger.jfrtofp.types.Counter
+import me.bechberger.jfrtofp.types.CounterDisplayConfig
+import me.bechberger.jfrtofp.types.CounterGraphType
 import me.bechberger.jfrtofp.types.CounterSamplesTable
 import me.bechberger.jfrtofp.types.ExtraProfileInfoEntry
+import me.bechberger.jfrtofp.types.MarkerDisplayLocation
 import me.bechberger.jfrtofp.types.Milliseconds
 import me.bechberger.jfrtofp.types.NativeSymbolTable
 import me.bechberger.jfrtofp.types.PauseReason
 import me.bechberger.jfrtofp.types.PausedRange
 import me.bechberger.jfrtofp.types.Pid
+import me.bechberger.jfrtofp.types.Profile
 import me.bechberger.jfrtofp.types.ProfileMeta
-import me.bechberger.jfrtofp.types.SampleGroup
 import me.bechberger.jfrtofp.types.SampleLikeMarkerConfig
 import me.bechberger.jfrtofp.types.SampleUnits
+import me.bechberger.jfrtofp.types.SharedData
 import me.bechberger.jfrtofp.types.TableColumnFormat
 import me.bechberger.jfrtofp.types.TableMarkerFormat
 import me.bechberger.jfrtofp.types.ThreadCPUDeltaUnit
 import me.bechberger.jfrtofp.types.ThreadIndex
 import me.bechberger.jfrtofp.types.Tid
 import me.bechberger.jfrtofp.types.WeightType
-import me.bechberger.jfrtofp.util.BasicJSONGenerator
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import me.bechberger.jfrtofp.util.Percentage
-import me.bechberger.jfrtofp.util.encodeToJSONStream
 import me.bechberger.jfrtofp.util.estimateIntervalInMillis
 import me.bechberger.jfrtofp.util.isGCThread
 import me.bechberger.jfrtofp.util.isSystemThread
@@ -43,22 +44,17 @@ import me.bechberger.jfrtofp.util.sampledThread
 import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
-import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.nio.file.Path
 import java.time.Instant
 import java.util.NavigableMap
-import java.util.Random
 import java.util.TreeMap
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.stream.LongStream
-import java.util.zip.GZIPOutputStream
 import kotlin.io.path.outputStream
 import kotlin.io.path.relativeTo
 import kotlin.math.roundToLong
+import java.util.zip.GZIPOutputStream
 import kotlin.streams.toList
+import java.util.stream.LongStream
 
 fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMarkerConfig> {
     val label = label ?: name
@@ -124,26 +120,20 @@ abstract class EventProcessor {
     abstract fun processEvent(event: RecordedEvent)
 
     open fun isFinished(): Boolean = true
-
-    open fun store(): StoredThing? = null
 }
 
-open class StoredThing(val data: ByteArray, val compressed: Boolean)
-
-class StoredThread(
-    data: ByteArray,
-    compressed: Boolean,
-    val isParentProcessThread: Boolean,
-    val threadId: Long,
-) : StoredThing(data, compressed)
-
-/** assumes that the events come in sorted order */
+/**
+ * Per-thread processor. Since v62 the lookup tables (string/stack/frame/func/...)
+ * live at the profile level, so all ThreadProcessors share a single [Tables]
+ * instance owned by the parent [Processor].
+ */
 class ThreadProcessor(
     val config: Config,
     val isParentProcessThread: Boolean,
     val threadId: Long,
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor,
+    val tables: Tables,
 ) : EventProcessor() {
     private var start: Instant = Instant.MIN
 
@@ -158,16 +148,9 @@ class ThreadProcessor(
     val items: Int
         get() = _items
 
-    private val tables: Tables =
-        Tables(
-            config,
-            basicInformation,
-            markerSchema,
-            basicInformation::classToUrl,
-            config.sourceUrl,
-        )
-
     private val samplesTable: SamplesTableWrapper = SamplesTableWrapper(tables)
+    private val rawMarkerTable: RawMarkerTableWrapper =
+        RawMarkerTableWrapper(tables, basicInformation, markerSchema)
 
     private var threadStartEvent: RecordedEvent? = null
     private var threadEndEvent: RecordedEvent? = null
@@ -230,7 +213,7 @@ class ThreadProcessor(
         } else {
             if (config.enableMarkers) {
                 _items++
-                tables.rawMarkerTable.processEvent(event)
+                rawMarkerTable.processEvent(event)
             }
             when (event.eventType.name) {
                 "jdk.ThreadCPULoad" -> processThreadCPULoad(event)
@@ -258,7 +241,7 @@ class ThreadProcessor(
         get() = if (isParentProcessThread) "GeckoMain" else thread?.let { it.realJavaName ?: it.osName } ?: "<unknown>"
 
     private val pid: Pid
-        get() = basicInformation.pid
+        get() = basicInformation.pid.toString()
 
     private val tid: Tid
         get() = if (isParentProcessThread) 0 else threadId
@@ -273,211 +256,19 @@ class ThreadProcessor(
             pausedRanges = pausedRanges.sortedBy { it.startTime!! },
             // the global process track has to have type "tab" and name "GeckoMain"
             name = name,
+            isMainThread = name == "GeckoMain",
             processName = "Parent Process",
             pid = pid,
             tid = tid,
             samples = samplesTable.toSamplesTable(this::getCpuLoad),
             jsAllocations = null,
             nativeAllocations = null,
-            markers = tables.rawMarkerTable.toRawMarkerTable(),
-            stackTable = tables.stackTraceTable.toStackTable(),
-            frameTable = tables.frameTable.toFrameTable(),
-            gTable = listOf(),
-            funcTable = tables.funcTable.toFuncTable(),
-            stringArray = tables.stringTable.toStringTable(),
-            resourceTable = tables.resourceTable.toResourceTable(),
-            nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf(), listOf()),
+            markers = rawMarkerTable.toRawMarkerTable(),
             sampleLikeMarkersConfig = generateSampleLikeMarkersConfig(),
         )
     }
 
-    /** user the JSON serialization library for everything */
-    fun store2(stream: OutputStream) {
-        toThread().encodeToJSONStream(stream)
-    }
-
-    /** don't use automatic serialization */
-    @OptIn(ExperimentalSerializationApi::class)
-    fun store(stream: OutputStream) {
-        val json = BasicJSONGenerator(stream)
-        json.writeStartObject()
-        json.writeSimpleField("processType", processType)
-        json.writeSimpleField("processStartupTime", start.toMillis())
-        json.writeSimpleField("processShutdownTime", end.toMillis())
-        json.writeSimpleField("registerTime", registerTime)
-        json.writeSimpleField("unregisterTime", unregisterTime)
-        json.writeField("pausedRanges", jsonFormat.encodeToString(pausedRanges.sortedBy { it.startTime!! }))
-        json.writeSimpleField("name", name)
-        json.writeSimpleField("pid", pid)
-        json.writeSimpleField("tid", tid)
-
-        json.writeFieldName("samples")
-        samplesTable.write(json, this::getCpuLoad)
-        json.writeFieldSep()
-
-        json.writeFieldName("markers")
-        tables.rawMarkerTable.write(json)
-        json.writeFieldSep()
-
-        json.writeFieldName("stackTable")
-        tables.stackTraceTable.write(json)
-        json.writeFieldSep()
-
-        json.writeFieldName("frameTable")
-        tables.frameTable.write(json)
-        json.writeFieldSep()
-
-        json.writeField("gTable", "[]")
-
-        json.writeFieldName("funcTable")
-        tables.funcTable.write(json)
-        json.writeFieldSep()
-
-        json.writeArrayField("stringArray", tables.stringTable.toStringTable(), json::writeString)
-
-        json.writeFieldName("resourceTable")
-        tables.resourceTable.write(json)
-        json.writeFieldSep()
-
-        json.writeField(
-            "nativeSymbols",
-            jsonFormat.encodeToString(NativeSymbolTable(listOf(), listOf(), listOf(), listOf())),
-        )
-        json.writeField(
-            "sampleLikeMarkersConfig",
-            jsonFormat.encodeToString(generateSampleLikeMarkersConfig()),
-            last = true,
-        )
-        json.writeEndObject()
-    }
-
-    override fun store(): StoredThread {
-        val storeFunc = if (isParentProcessThread) ::store2 else ::store2
-        val baos = ByteArrayOutputStream()
-        val compress = eventCount >= COMPRESSION_THRESHOLD
-        if (compress) {
-            GZIPOutputStream(baos).use {
-                storeFunc(it)
-            }
-        } else {
-            storeFunc(baos)
-        }
-        return StoredThread(
-            baos.toByteArray(),
-            compressed = compress,
-            isParentProcessThread,
-            threadId,
-        )
-    }
-
     override fun isFinished() = threadEndEvent != null
-
-    companion object {
-        private const val COMPRESSION_THRESHOLD = 100
-    }
-}
-
-abstract class AbstractWorkerThread : Thread() {
-    private val shouldStop = AtomicBoolean(false)
-    private val queue = ConcurrentLinkedQueue<RecordedEvent>()
-
-    open fun acceptable(event: RecordedEvent): Boolean = true
-
-    abstract fun processEvent(event: RecordedEvent)
-
-    abstract fun store()
-
-    fun acceptEvent(event: RecordedEvent) {
-        queue.add(event)
-    }
-
-    fun signalStop() {
-        shouldStop.set(true)
-    }
-
-    override fun run() {
-        while (!shouldStop.get()) {
-            while (queue.isNotEmpty()) {
-                val event = queue.poll()
-                if (event != null) {
-                    processEvent(event)
-                }
-            }
-        }
-        store()
-    }
-}
-
-class AllEventWorkerThread(val processor: EventProcessor) : AbstractWorkerThread() {
-    var store: StoredThing? = null
-
-    override fun processEvent(event: RecordedEvent) {
-        processor.processEvent(event)
-    }
-
-    override fun store() {
-        store = processor.store()
-    }
-}
-
-class MainAndUnknownThreadEventWorkerThread(val processor: ThreadProcessor, val mainThreadId: Long) : AbstractWorkerThread() {
-    var store: StoredThread? = null
-
-    override fun acceptable(event: RecordedEvent): Boolean {
-        return event.thread == null || event.thread.id == mainThreadId
-    }
-
-    override fun processEvent(event: RecordedEvent) {
-        processor.processEvent(event)
-    }
-
-    override fun store() {
-        store = processor.store()
-    }
-}
-
-class UnknownThreadEventWorkerThread(val processor: EventProcessor) : AbstractWorkerThread() {
-    var store: StoredThing? = null
-
-    override fun acceptable(event: RecordedEvent): Boolean {
-        return event.thread == null
-    }
-
-    override fun processEvent(event: RecordedEvent) {
-        processor.processEvent(event)
-    }
-
-    override fun store() {
-        store = processor.store()
-    }
-}
-
-class SpecificThreadEventWorkerThread(val processors: Map<Long, ThreadProcessor>) : AbstractWorkerThread() {
-    val store: MutableMap<Long, StoredThread> = mutableMapOf()
-    private val nonStoredThreads = ConcurrentHashMap<Long, Boolean>(processors.keys.map { it to false }.toMap())
-
-    override fun acceptable(event: RecordedEvent): Boolean {
-        return nonStoredThreads.containsKey(event.realThread?.id)
-    }
-
-    override fun processEvent(event: RecordedEvent) {
-        val threadId = event.realThread?.id
-        if (!nonStoredThreads.containsKey(threadId)) {
-            return
-        }
-        val processor = processors[threadId]!!
-        processor.processEvent(event)
-        if (processor.isFinished()) {
-            store[processor.threadId] = processor.store()
-            nonStoredThreads -= processor.threadId
-        }
-    }
-
-    override fun store() {
-        nonStoredThreads.keys.forEach {
-            store[it] = processors[it]!!.store()
-        }
-    }
 }
 
 /** Basic information that can be obtained fast from a JFR file */
@@ -498,7 +289,7 @@ data class BasicInformation(
     val startTimeMillis = startTime.toMillis()
     val intervalMillis = interval.toEpochMilli()
     val intervalNanos = interval.toNanos()
-    val pid =
+    val pid: Long =
         try {
             jvmInformation?.getLong("pid") ?: -1
         } catch (_: IllegalArgumentException) {
@@ -735,29 +526,40 @@ internal class ProcessCounterProcessor(
         }
     }
 
+    private val cpuDisplay =
+        CounterDisplayConfig(
+            graphType = CounterGraphType.LINE_RATE,
+            unit = "%",
+            color = "grey",
+        )
+
+    private val memoryDisplay =
+        CounterDisplayConfig(
+            graphType = CounterGraphType.LINE_ACCUMULATED,
+            unit = "bytes",
+            color = "orange",
+            markerSchemaLocation = MarkerDisplayLocation.TIMELINE_MEMORY,
+        )
+
     private fun generateCPUCounters(endTime: Instant) =
         if (cpuLoads.size > 0) {
-            listOf( // TODO: does not work
+            listOf(
                 Counter(
                     name = "processCPU",
                     category = "CPU",
                     description = "Process CPU utilization",
-                    pid = basicInformation.pid,
+                    pid = basicInformation.pid.toString(),
                     mainThreadIndex = 0,
-                    sampleGroups =
-                        listOf(
-                            SampleGroup(
-                                0,
-                                CounterSamplesTable(
-                                    time = cpuLoads.map { it.time.toMillis() },
-                                    count =
-                                        cpuLoads.map {
-                                            ((it.jvmUser + it.jvmSystem) * 1_000_000.0)
-                                                .roundToLong()
-                                        },
-                                ),
-                            ),
+                    samples =
+                        CounterSamplesTable(
+                            time = cpuLoads.map { it.time.toMillis() },
+                            count =
+                                cpuLoads.map {
+                                    ((it.jvmUser + it.jvmSystem) * 1_000_000.0)
+                                        .roundToLong()
+                                },
                         ),
+                    display = cpuDisplay,
                 ),
             )
         } else {
@@ -771,27 +573,23 @@ internal class ProcessCounterProcessor(
                 name = prop.propName,
                 category = "Memory",
                 description = prop.description,
-                pid = basicInformation.pid,
+                pid = basicInformation.pid.toString(),
                 mainThreadIndex = 0,
-                sampleGroups =
-                    listOf(
-                        SampleGroup(
-                            0,
-                            CounterSamplesTable(
-                                time = sortedSamples.map { (t, _) -> t },
-                                count =
-                                    sortedSamples.mapIndexed { i, (_, value) ->
-                                        if (i == 0) {
-                                            value
-                                        } else {
-                                            value - sortedSamples[i - 1].second
-                                        }
-                                    },
-                            ),
-                        ),
+                samples =
+                    CounterSamplesTable(
+                        time = sortedSamples.map { (t, _) -> t },
+                        count =
+                            sortedSamples.mapIndexed { i, (_, value) ->
+                                if (i == 0) {
+                                    value
+                                } else {
+                                    value - sortedSamples[i - 1].second
+                                }
+                            },
                     ),
+                display = memoryDisplay,
             )
-        }.filter { it.sampleGroups[0].samples.length > 0 }
+        }.filter { it.samples.length > 0 }
 
     private fun generateGenericCPUCounters(endTime: Instant): List<Counter> {
         val slices =
@@ -806,18 +604,14 @@ internal class ProcessCounterProcessor(
                 name = "processCPU",
                 category = "CPU",
                 description = "Process CPU utilization",
-                pid = basicInformation.pid,
+                pid = basicInformation.pid.toString(),
                 mainThreadIndex = 0,
-                sampleGroups =
-                    listOf(
-                        SampleGroup(
-                            0,
-                            CounterSamplesTable(
-                                time = slices,
-                                count = List(slices.size) { 10 },
-                            ),
-                        ),
+                samples =
+                    CounterSamplesTable(
+                        time = slices,
+                        count = List(slices.size) { 10 },
                     ),
+                display = cpuDisplay,
             ),
         )
     }
@@ -994,17 +788,7 @@ internal class MetaProcessor(
             logicalCPUs = basicInformation.cpuInformation?.getInt("hwThreads"),
             sampleUnits = SampleUnits(threadCPUDelta = ThreadCPUDeltaUnit.US),
             importedFrom = jfrFile.toString(),
-            extra =
-                listOf(
-                /*ExtraProfileInfoSection(
-                    "Extra Environment Information",
-                    listOfNotNull(
-                        initialSystemPropertyEntry(),
-                        environmentVariablesEntry(),
-                        generateSystemProcessEntry()
-                    )
-                )*/
-                ),
+            extra = listOf(),
             initialVisibleThreads = initialVisibleThreadIds,
             initialSelectedThreads = initialSelectedThreadIds,
             keepProfileThreadOrder = true,
@@ -1039,39 +823,22 @@ abstract class Processor(val config: Config, val jfrFile: Path) {
 
 class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
     @OptIn(ExperimentalSerializationApi::class)
-    fun writeProfile(
-        outputStream: OutputStream,
-        meta: ProfileMeta,
-        threads: List<StoredThread>,
-        counters: List<Counter>,
-    ) {
-        val json = BasicJSONGenerator(outputStream)
-        json.writeStartObject()
-        json.writeFieldName("libs")
-        json.writeEmptyArray()
-        json.writeFieldSep()
-        json.writeFieldName("meta")
-        meta.encodeToJSONStream(outputStream)
-        json.writeFieldSep()
-        json.writeFieldName("threads")
-        json.writeArray(threads) { thread ->
-            json.writeRawByteArray(thread.data, thread.compressed)
-        }
-        json.writeFieldSep()
-        json.writeFieldName("counters")
-        json.writeArray(counters) { counter ->
-            jsonFormat.encodeToStream(counter, json.output)
-        }
-        json.writeEndObject()
-    }
-
     override fun process(outputStream: OutputStream) {
+        // Single shared Tables instance for the whole profile (v62 shared tables).
+        val tables =
+            Tables(
+                config,
+                basicInformation,
+                markerSchema,
+                basicInformation::classToUrl,
+                config.sourceUrl,
+            )
         val threadToProcessor = mutableMapOf<Long, ThreadProcessor>()
-        val storedThreads = mutableMapOf<Long, StoredThread>()
 
         val metaProcessor = MetaProcessor(jfrFile, basicInformation, markerSchema, config)
         val processCounterProcessor = ProcessCounterProcessor(basicInformation, config)
-        val parentThreadProcessor = ThreadProcessor(config, true, -1, basicInformation, markerSchema)
+        val parentThreadProcessor =
+            ThreadProcessor(config, true, -1, basicInformation, markerSchema, tables)
 
         RecordingFile(jfrFile).use { file ->
             while (file.hasMoreEvents()) {
@@ -1081,17 +848,12 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
                 }
                 metaProcessor.processEvent(event)
                 processCounterProcessor.processEvent(event)
-                val processor: ThreadProcessor
                 val realThread = event.realThread
                 if (realThread != null) {
-                    if ((!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) ||
-                        storedThreads.containsKey(
-                            realThread.id,
-                        )
-                    ) {
+                    if (!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) {
                         continue
                     }
-                    processor =
+                    val processor =
                         threadToProcessor.getOrPut(realThread.id) {
                             ThreadProcessor(
                                 config,
@@ -1099,151 +861,45 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
                                 realThread.id,
                                 basicInformation,
                                 markerSchema,
+                                tables,
                             )
                         }
                     processor.processEvent(event)
-                    if (processor.isFinished()) {
-                        storedThreads[realThread.id] = processor.store()
-                        threadToProcessor.remove(realThread.id)
-                    }
                 } else {
                     parentThreadProcessor.processEvent(event)
                 }
             }
         }
         val threads =
-            metaProcessor.sortedThreads().map {
-                when (it) {
-                    is ParentThreadInfo -> parentThreadProcessor.store()
+            metaProcessor.sortedThreads().map { info ->
+                when (info) {
+                    is ParentThreadInfo -> parentThreadProcessor.toThread()
                     is BasicThreadInfo ->
-                        storedThreads[it.id] ?: threadToProcessor[it.id]?.store()
-                            ?: {
-                                error("Thread ${it.id} ${it.name} not found")
-                            }()
+                        threadToProcessor[info.id]?.toThread()
+                            ?: error("Thread ${info.id} ${info.name} not found")
                 }
             }
-        writeProfile(
-            outputStream,
-            meta = metaProcessor.toMeta(),
-            threads = threads,
-            counters = processCounterProcessor.generateCounters(metaProcessor.endTime),
-        )
-    }
-}
 
-class MultiThreadedProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile) {
-    // -1 being the parent process thread
-    private val storedThreads = mutableMapOf<Long, StoredThread>()
-    private val metaProcessor: MetaProcessor = MetaProcessor(jfrFile, basicInformation, markerSchema, config)
-    private val counterProcessor = ProcessCounterProcessor(basicInformation, config)
-
-    private fun ignoreEvent(event: RecordedEvent): Boolean {
-        return event.eventType.name in config.ignoredEvents || (
-            !config.includeGCThreads && metaProcessor.isGCThread(event.realThread?.id ?: -1)
-        )
-    }
-
-    override fun process(outputStream: OutputStream) {
-        firstRun()
-        secondRun()
-    }
-
-    /**
-     * Create the counters, ProfileMeta and handle the parent process and main thread tracks
-     */
-    internal fun firstRun() {
-        val parentProcessThreadProcessor = ThreadProcessor(config, true, -1, basicInformation, markerSchema)
-        val parentProcessThreadWorker = AllEventWorkerThread(parentProcessThreadProcessor)
-        val mainThreadProcessor =
-            ThreadProcessor(
-                config,
-                false,
-                basicInformation.mainThreadId,
-                basicInformation,
-                markerSchema,
+        val shared =
+            SharedData(
+                stringArray = tables.stringTable.toStringTable(),
+                stackTable = tables.stackTraceTable.toStackTable(),
+                frameTable = tables.frameTable.toFrameTable(),
+                funcTable = tables.funcTable.toFuncTable(),
+                resourceTable = tables.resourceTable.toResourceTable(),
+                nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf(), listOf()),
+                sources = tables.sourceTable.toSourceTable(),
             )
-        val mainThreadWorker = AllEventWorkerThread(mainThreadProcessor)
 
-        parentProcessThreadWorker.start()
-        mainThreadWorker.start()
-
-        RecordingFile(jfrFile).use { file ->
-            while (file.hasMoreEvents()) {
-                val event = file.readEvent()
-                if (ignoreEvent(event)) {
-                    continue
-                }
-                metaProcessor.processEvent(event)
-                counterProcessor.processEvent(event)
-                val realThread = event.realThread
-                if (realThread != null) {
-                    if (realThread.id == basicInformation.mainThreadId) {
-                        mainThreadWorker.acceptEvent(event)
-                    }
-                } else {
-                    parentProcessThreadWorker.acceptEvent(event)
-                }
-            }
-        }
-
-        parentProcessThreadWorker.signalStop()
-        mainThreadWorker.signalStop()
-        parentProcessThreadWorker.join()
-        mainThreadWorker.join()
-
-        storedThreads[-1] = parentProcessThreadProcessor.store()
-        storedThreads[basicInformation.mainThreadId] = mainThreadProcessor.store()
-    }
-
-    internal fun secondRun() {
-        val workers = mutableListOf<SpecificThreadEventWorkerThread>()
-
-        val threadIds = metaProcessor.threads.keys.filter { it != -1L && it != basicInformation.mainThreadId }.shuffled()
-        val random = Random()
-        threadIds.groupBy { random.nextInt(config.maxUsedThreads) }.map { (id, threads) ->
-            while (workers.size <= id) {
-                val worker =
-                    SpecificThreadEventWorkerThread(
-                        threads.map { thread ->
-                            thread to
-                                ThreadProcessor(
-                                    config,
-                                    false,
-                                    thread,
-                                    basicInformation,
-                                    markerSchema,
-                                )
-                        }.toMap(),
-                    )
-                workers.add(worker)
-            }
-        }
-
-        workers.forEach { it.start() }
-
-        RecordingFile(jfrFile).use { file ->
-            while (file.hasMoreEvents()) {
-                val event = file.readEvent()
-                if (ignoreEvent(event)) {
-                    continue
-                }
-                val realThread = event.realThread
-                if (realThread != null) {
-                    workers.forEach {
-                        if (it.acceptable(event)) {
-                            it.acceptEvent(event)
-                        }
-                    }
-                }
-            }
-        }
-
-        workers.forEach { it.signalStop() }
-        workers.forEach { it.join() }
-
-        workers.forEach { worker ->
-            storedThreads.putAll(worker.store)
-        }
+        val profile =
+            Profile(
+                meta = metaProcessor.toMeta(),
+                libs = listOf(),
+                shared = shared,
+                counters = processCounterProcessor.generateCounters(metaProcessor.endTime),
+                threads = threads,
+            )
+        jsonFormat.encodeToStream(profile, outputStream)
     }
 }
 
@@ -1253,5 +909,4 @@ fun main() {
     Path.of("samples/$jfrFilePart.json.gz").outputStream().use {
         processor.processZipped(it)
     }
-    // processor.process(Path.of("samples/$jfrFilePart.json").outputStream())
 }
