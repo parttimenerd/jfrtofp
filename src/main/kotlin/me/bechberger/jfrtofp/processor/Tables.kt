@@ -186,7 +186,7 @@ class RawMarkerTableWrapper(
         val startTime = event.startTime.toMillis()
         val endTime = event.endTime.toMillis()
         val phase = if (event.endTime == event.startTime) 0 else 1 // instant vs interval
-        val category = CategoryE.fromName(event.eventType.categoryNames.first()).index
+        val category = CategoryE.fromName(event.eventType.categoryNames.firstOrNull() ?: "Other").index
         val startTimeInstant = event.startTime
         val data =
             fieldMapping.fields.map { field ->

@@ -102,20 +102,48 @@ val RecordedClass.className
         }
 
 fun RecordedThread.isSystemThread(): Boolean {
-    return !isVirtualThread() && (
-        javaName == null || javaName in
-            listOf(
-                "JFR Periodic Tasks",
-                "JFR Shutdown Hook",
-                "Permissionless thread",
-                "Thread Monitor CTRL-C",
-            ) || threadGroup?.name == "system" || isGCThread() ||
-            javaName.startsWith("JFR ") ||
-            javaName == "Monitor Ctrl-Break" || "CompilerThread" in javaName ||
-            javaName.startsWith("GC Thread") || javaName == "Notification Thread" ||
-            javaName == "Finalizer" || javaName == "Attach Listener"
-    )
+    if (isVirtualThread()) return false
+    if (javaName == null) return true
+    if (threadGroup?.name == "system") return true
+    if (isGCThread()) return true
+    val n = javaName
+    return n in SYSTEM_THREAD_EXACT_NAMES ||
+        SYSTEM_THREAD_PREFIXES.any { n.startsWith(it) } ||
+        SYSTEM_THREAD_SUBSTRINGS.any { it in n }
 }
+
+private val SYSTEM_THREAD_EXACT_NAMES = setOf(
+    // JFR internals
+    "JFR Shutdown Hook", "Permissionless thread", "Thread Monitor CTRL-C",
+    // IntelliJ / IDE
+    "Monitor Ctrl-Break",
+    // JVM runtime
+    "Notification Thread", "Finalizer", "Attach Listener",
+    "Signal Dispatcher", "Reference Handler", "Common-Cleaner",
+    "VM Thread", "VM Periodic Task Thread",
+    "Sweeper thread", "Service Thread", "Watcher Thread",
+    // DestroyJavaVM, process reaper, etc.
+    "DestroyJavaVM",
+)
+
+private val SYSTEM_THREAD_PREFIXES = setOf(
+    "JFR ",                    // JFR Periodic Tasks, JFR Writer, etc.
+    "GC Thread",               // GC Thread#0, GC Thread#1, …
+    "G1 ",                     // G1 Conc#0, G1 Refine#0, G1 Service, G1 Young RemSet Sampling
+    "ZGC ",                    // ZGC Worker#0, ZGC Driver, etc.
+    "Shenandoah ",             // Shenandoah GC Thread
+    "ParGC ",                  // Parallel GC
+    "CMS ",                    // CMS Thread
+    "C1 CompilerThread",       // C1 CompilerThread0
+    "C2 CompilerThread",       // C2 CompilerThread0
+    "Graal Compiler Thread",   // GraalVM JIT
+    "JVMCI CompilerThread",
+    "AdaptiveOptimization ",
+)
+
+private val SYSTEM_THREAD_SUBSTRINGS = setOf(
+    "CompilerThread",          // catches any remaining CompilerThread variants
+)
 
 fun RecordedThread.isVirtualThread(): Boolean {
     return this.hasField("virtual") && this.getBoolean("virtual")
