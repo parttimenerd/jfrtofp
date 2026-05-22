@@ -8,6 +8,18 @@ JFR to [Firefox Profiler](https://profiler.firefox.com) converter for JDK 11+.
 It works best with this custom [Firefox Profiler fork](https://github.com/parttimenerd/firefox-profiler/tree/jfrtofp)
 which includes many of our own PRs which are not yet upstream (and might be less stable).
 
+## Web-based alternative (no JVM required)
+
+If you don't need the CLI/server workflow, the [hosted Firefox Profiler fork](https://parttimenerd.github.io/firefox-profiler/)
+includes an in-browser JFR converter — drag and drop a `.jfr` file into the page and
+view it directly. The conversion runs locally in WebAssembly (built on
+[Jaroslav Bachorik](https://github.com/jbachorik)'s [jafar](https://github.com/btraceio/jafar)
+parser, compiled via [GraalVM Web Image](https://www.graalvm.org/latest/reference-manual/web-image/));
+no file leaves your machine and no Java/JVM is needed locally.
+
+For batch conversion, integration into another tool, or large recordings where
+the in-browser converter is too slow, keep using `jfrtofp` / `jfrtofp-server` below.
+
 ## Basic Usage
 
 We recommend using the [jfrtofp-server](https://github.com/parttimenerd/jfrtofp-server) which includes a
