@@ -61,14 +61,21 @@ class FileCache(
         config: Config,
         filePath: Path,
     ) {
-        Files.newOutputStream(filePath).use { baas ->
-            val processor = SimpleProcessor(config, jfrFile)
-            when (filePath.fileExtension) {
-                "json" -> processor.process(baas)
-                "gz" -> processor.processZipped(baas)
-                else -> throw IllegalArgumentException("Unknown file extension: ${filePath.fileExtension}")
+        try {
+            Files.newOutputStream(filePath).use { baas ->
+                val processor = SimpleProcessor(config, jfrFile)
+                when (filePath.fileExtension) {
+                    "json" -> processor.process(baas)
+                    "gz" -> processor.processZipped(baas)
+                    else -> throw IllegalArgumentException("Unknown file extension: ${filePath.fileExtension}")
+                }
+                ensureFreeSpace(0)
             }
-            ensureFreeSpace(0)
+        } catch (e: Throwable) {
+            // Delete the partial/empty output file so the next request retries conversion
+            // instead of serving a zero-byte or truncated file.
+            Files.deleteIfExists(filePath)
+            throw e
         }
     }
 

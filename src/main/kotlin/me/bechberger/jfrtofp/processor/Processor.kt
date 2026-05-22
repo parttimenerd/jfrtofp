@@ -355,6 +355,7 @@ data class BasicInformation(
             var startTime: Instant? = null
             var backupMainThreadId: Long? = null
             var backupStartTime: Instant? = null
+            var activeRecordingStartTime: Instant? = null
             var eventCount = 0
             var jvmInformation: RecordedEvent? = null
             var cpuInformation: RecordedEvent? = null
@@ -379,6 +380,8 @@ data class BasicInformation(
                     if (jvmInformation == null && event.eventType.name == "jdk.JVMInformation") {
                         startTime = event.getInstant("jvmStartTime")
                         jvmInformation = event
+                    } else if (activeRecordingStartTime == null && event.eventType.name == "jdk.ActiveRecording") {
+                        activeRecordingStartTime = event.getInstant("recordingStart")
                     } else if (cpuInformation == null && event.eventType.name == "jdk.CPUInformation") {
                         cpuInformation = event
                     } else if (osInformation == null && event.eventType.name == "jdk.OSInformation") {
@@ -414,6 +417,9 @@ data class BasicInformation(
             }
             if (startTime == null) {
                 startTime = backupStartTime
+            }
+            if (startTime == null) {
+                startTime = activeRecordingStartTime
             }
             if (startTime == null) {
                 error("Could not find start time")
