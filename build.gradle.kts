@@ -35,7 +35,7 @@ plugins {
 
     id("java-library")
     id("signing")
-    id("io.github.gradle-nexus.publish-plugin") version "1.1.0"
+    id("com.gradleup.nmcp") version "0.1.5"
 }
 
 pmd {
@@ -139,15 +139,13 @@ publishing {
             from(components["java"])
         }
     }
-    repositories {
-        maven {
-            name = "Sonatype"
-            url = uri("https://central.sonatype.com/repository/maven-snapshots/")
-            credentials {
-                username = properties("sonatypeTokenUsername")
-                password = properties("sonatypeToken")
-            }
-        }
+}
+
+nmcp {
+    centralPortal {
+        username = properties("sonatypeTokenUsername")
+        password = properties("sonatypeToken")
+        publishingType = "AUTOMATIC"
     }
 }
 
