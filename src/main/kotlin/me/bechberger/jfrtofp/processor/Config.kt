@@ -238,6 +238,11 @@ data class Config(
                 "jdk.PromoteObjectInNewPLAB",
                 "jdk.PromoteObjectOutsidePLAB",
                 "jdk.GCCPUTime",
+                // High-volume G1GC region tracking events (millions per recording on G1)
+                "jdk.G1HeapRegionTypeChange",
+                "jdk.G1HeapRegionInformation",
+                // Other high-volume detail events
+                "jdk.ObjectCountAfterGC",
             )
         const val DEFAULT_MIN_ITEMS_PER_THREAD = 3
     }

@@ -108,6 +108,27 @@ tasks.register<Copy>("copyHooks") {
 
 tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))
 
+// Large-file OOM acceptance test. Run with: ./gradlew largeFileTest -PrunLarge=true
+// Converts a 418 MB JFR under -Xmx512m; success means no OOM.
+if (project.hasProperty("runLarge")) {
+    tasks.register<JavaExec>("largeFileTest") {
+        dependsOn("shadowJar")
+        group = "verification"
+        description = "Convert large JFR files under -Xmx512m to verify no OOM"
+        classpath = files(tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile)
+        mainClass.set("me.bechberger.jfrtofp.MainKt")
+        val largeJfr = "/Users/i560383_1/code/experiments/condensed-data/benchmark/renaissance-all_gc_details_G1.jfr"
+        val outFile = layout.buildDirectory.file("large-test-out.json.gz").get().asFile.absolutePath
+        args = listOf(largeJfr, "-o", outFile)
+        jvmArgs = listOf("-Xmx512m")
+        doLast {
+            val sizeMb = file(outFile).length() / 1_048_576.0
+            println("largeFileTest PASSED — output %.1f MB".format(sizeMb))
+            file(outFile).delete()
+        }
+    }
+}
+
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
