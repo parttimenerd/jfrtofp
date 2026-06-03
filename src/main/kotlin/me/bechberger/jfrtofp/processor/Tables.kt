@@ -40,25 +40,26 @@ import me.bechberger.jfrtofp.util.quantize
 import java.util.IdentityHashMap
 
 /** Wraps the [SamplesTable] class */
-class SamplesTableWrapper(val tables: Tables) {
+class SamplesTableWrapper(val tables: Tables, private val spiller: SampleSpiller? = null) {
     data class Item(val stack: IndexIntoStackTable, val time: Milliseconds)
 
-    private val items: MutableList<Item> = mutableListOf()
+    private val items: MutableList<Item> = if (spiller == null) mutableListOf() else mutableListOf()
+    private var itemCount: Int = 0
 
     fun processEvent(event: RecordedEvent) {
         val cap = tables.config.maxExecutionSamplesPerThread
-        if (cap >= 0 && items.size >= cap) return
-        items.add(
-            Item(
-                event.stackTrace.let {
-                    tables.getStack(
-                        it,
-                    )
-                },
-                event.startTime.toMillis(),
-            ),
-        )
+        if (cap >= 0 && itemCount >= cap) return
+        val stack = tables.getStack(event.stackTrace)
+        val time = event.startTime.toMillis()
+        itemCount++
+        if (spiller != null) {
+            spiller.add(stack, time)
+        } else {
+            items.add(Item(stack, time))
+        }
     }
+
+    val count: Int get() = itemCount
 
     fun toSamplesTable(cpuLoad: (Milliseconds) -> Percentage): SamplesTable {
         val sortedItems = items.sortedBy { it.time }
@@ -88,16 +89,45 @@ class SamplesTableWrapper(val tables: Tables) {
         json: BasicJSONGenerator,
         cpuLoad: (Milliseconds) -> Percentage,
     ) {
-        val samplesTable = toSamplesTable(cpuLoad)
+        if (spiller != null) {
+            writeFromSpiller(json, cpuLoad)
+        } else {
+            val samplesTable = toSamplesTable(cpuLoad)
+            writeArrays(json, samplesTable.stack, samplesTable.time, samplesTable.threadCPUDelta!!)
+        }
+    }
+
+    private fun writeFromSpiller(json: BasicJSONGenerator, cpuLoad: (Milliseconds) -> Percentage) {
+        spiller!!.close()
+        val cap = spiller.count.toInt().coerceAtMost(Int.MAX_VALUE)
+        val stackList = ArrayList<Int?>(cap)
+        val timeList = ArrayList<Double>(cap)
+        spiller.replay { stack, rawTime ->
+            stackList.add(stack)
+            timeList.add(rawTime.quantize(tables.config.timestampDecimals))
+        }
+
+        val threadCPUDelta = ArrayList<Double?>(timeList.size)
+        threadCPUDelta.add(0.0)
+        for (i in 1 until timeList.size) {
+            threadCPUDelta.add(
+                if (i == timeList.size - 1) 0.0
+                else ((timeList[i] - timeList[i - 1]) * 1000.0 * cpuLoad(timeList[i])).quantize(tables.config.timestampDecimals)
+            )
+        }
+        writeArrays(json, stackList, timeList, threadCPUDelta)
+    }
+
+    private fun writeArrays(json: BasicJSONGenerator, stack: List<Int?>, time: List<Double>, threadCPUDelta: List<Double?>) {
         json.writeStartObject()
-        json.writeNumberArrayField("stack", samplesTable.stack)
-        json.writeQuantizedNumberArrayField("time", samplesTable.time, tables.config.timestampDecimals)
-        json.writeQuantizedNumberArrayField("threadCPUDelta", samplesTable.threadCPUDelta!!, tables.config.timestampDecimals)
+        json.writeNumberArrayField("stack", stack)
+        json.writeQuantizedNumberArrayField("time", time, tables.config.timestampDecimals)
+        json.writeQuantizedNumberArrayField("threadCPUDelta", threadCPUDelta, tables.config.timestampDecimals)
         if (tables.config.emitEventDelay) {
-            json.writeSingleValueArrayField("eventDelay", "0.0", samplesTable.stack.size)
+            json.writeSingleValueArrayField("eventDelay", "0.0", stack.size)
         }
         json.writeSimpleField("weightType", "samples")
-        json.writeSimpleField("length", samplesTable.stack.size, last = true)
+        json.writeSimpleField("length", stack.size, last = true)
         json.writeEndObject()
     }
 }
@@ -173,6 +203,7 @@ class RawMarkerTableWrapper(
     val tables: Tables,
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor,
+    private val spiller: MarkerSpiller? = null,
 ) {
     data class Item(
         val name: IndexIntoStringTable,
@@ -184,10 +215,12 @@ class RawMarkerTableWrapper(
     )
 
     private val items: MutableList<Item> = mutableListOf()
+    private var itemCount: Int = 0
 
+    @OptIn(ExperimentalSerializationApi::class)
     fun processEvent(event: RecordedEvent) {
         val cap = tables.config.maxMiscSamplesPerThread
-        if (cap >= 0 && items.size >= cap) return
+        if (cap >= 0 && itemCount >= cap) return
         val fieldMapping: MarkerSchemaFieldMapping = markerSchema[event.eventType] ?: return
         val name = tables.getString(event.eventType.name)
         val startTime = event.startTime.toMillis().quantize(tables.config.timestampDecimals)
@@ -218,11 +251,20 @@ class RawMarkerTableWrapper(
                         .toJsonElement()
             }
         }
-        items.add(Item(name, startTime, endTime, phase, category, data))
+        itemCount++
+        if (spiller != null) {
+            val baos = java.io.ByteArrayOutputStream()
+            jsonFormat.encodeToStream(data as Map<String, JsonElement>, baos)
+            spiller.add(name, startTime, endTime, phase, category, baos.toByteArray())
+        } else {
+            items.add(Item(name, startTime, endTime, phase, category, data))
+        }
     }
 
+    val count: Int get() = itemCount
+
     fun toRawMarkerTable(): RawMarkerTable {
-        val sortedItems = items.sortedBy { it.startTime } // TODO: really needed?
+        val sortedItems = items.sortedBy { it.startTime }
         return RawMarkerTable(
             data = sortedItems.map { it.data },
             name = sortedItems.map { it.name },
@@ -235,26 +277,67 @@ class RawMarkerTableWrapper(
 
     @OptIn(ExperimentalSerializationApi::class)
     fun write(json: BasicJSONGenerator) {
-        val sortedItems = items.sortedBy { it.startTime } // TODO: really needed?
+        if (spiller != null) {
+            writeFromSpiller(json)
+        } else {
+            writeFromItems(json)
+        }
+    }
+
+    private fun writeFromSpiller(json: BasicJSONGenerator) {
+        spiller!!.close()
+        // Collect sorted rows from k-way merge
+        val names = ArrayList<Int>(itemCount)
+        val startTimes = ArrayList<Double?>(itemCount)
+        val endTimes = ArrayList<Double?>(itemCount)
+        val phases = ArrayList<Int>(itemCount)
+        val categories = ArrayList<Int>(itemCount)
+        val dataBlobs = ArrayList<ByteArray>(itemCount)
+        spiller.replay { name, startTime, endTime, phase, category, dataBytes ->
+            names.add(name); startTimes.add(startTime); endTimes.add(endTime)
+            phases.add(phase); categories.add(category); dataBlobs.add(dataBytes)
+        }
+        writeArraysAndData(json, names, startTimes, endTimes, phases, categories) { i ->
+            json.output.write(dataBlobs[i])
+        }
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun writeFromItems(json: BasicJSONGenerator) {
+        val sortedItems = items.sortedBy { it.startTime }
+        writeArraysAndData(
+            json,
+            sortedItems.map { it.name },
+            sortedItems.map { it.startTime },
+            sortedItems.map { it.endTime },
+            sortedItems.map { it.phase },
+            sortedItems.map { it.category },
+        ) { i -> jsonFormat.encodeToStream(sortedItems[i].data, json.output) }
+    }
+
+    private fun writeArraysAndData(
+        json: BasicJSONGenerator,
+        names: List<Int>,
+        startTimes: List<Double?>,
+        endTimes: List<Double?>,
+        phases: List<Int>,
+        categories: List<Int>,
+        writeData: (Int) -> Unit,
+    ) {
         json.writeStartObject()
-
-        json.writeNumberArrayField("name", sortedItems.map { it.name })
-        json.writeQuantizedNumberArrayField("startTime", sortedItems.map { it.startTime }, tables.config.timestampDecimals)
-        json.writeQuantizedNumberArrayField("endTime", sortedItems.map { it.endTime }, tables.config.timestampDecimals)
-        json.writeNumberArrayField("phase", sortedItems.map { it.phase })
-        json.writeNumberArrayField("category", sortedItems.map { it.category })
-        json.writeSimpleField("length", sortedItems.size)
-
+        json.writeNumberArrayField("name", names)
+        json.writeQuantizedNumberArrayField("startTime", startTimes, tables.config.timestampDecimals)
+        json.writeQuantizedNumberArrayField("endTime", endTimes, tables.config.timestampDecimals)
+        json.writeNumberArrayField("phase", phases)
+        json.writeNumberArrayField("category", categories)
+        json.writeSimpleField("length", names.size)
         json.writeFieldName("data")
         json.writeStartArray()
-        sortedItems.forEach {
-            jsonFormat.encodeToStream(it.data, json.output)
-            if (it != sortedItems.last()) {
-                json.writeFieldSep()
-            }
+        names.indices.forEach { i ->
+            writeData(i)
+            if (i < names.size - 1) json.writeFieldSep()
         }
         json.writeEndArray()
-
         json.writeEndObject()
     }
 }
