@@ -69,7 +69,7 @@ class ConfigMixin {
     var sourceUrl: String? = null
 
     @CommandLine.Option(names = ["--execution-sample-type"], description = ["Glob pattern (* and | supported) that matches the used execution sample type"])
-    var executionSampleType: String = "jdk.ExecutionSample|jdk.NativeMethodSample"
+    var executionSampleType: String = "jdk.ExecutionSample|jdk.NativeMethodSample|jdk.CPUTimeSample"
 
     fun toConfig() =
         Config(
@@ -142,7 +142,7 @@ data class Config(
     val ignoredEvents: Set<String> = DEFAULT_IGNORED_EVENTS.toSet(),
     /** minimum number of samples or markers a event has to have */
     val minRequiredItemsPerThread: Int = DEFAULT_MIN_ITEMS_PER_THREAD,
-    val executionSampleType: Regex = "jdk.ExecutionSample|jdk.NativeMethodSample".toRegex(),
+    val executionSampleType: Regex = "jdk.ExecutionSample|jdk.NativeMethodSample|jdk.CPUTimeSample".toRegex(),
 ) {
     fun isExecutionSample(event: RecordedEvent) = isExecutionSample(event.eventType.name)
     fun isExecutionSample(eventType: String) = executionSampleType.matches(eventType)
