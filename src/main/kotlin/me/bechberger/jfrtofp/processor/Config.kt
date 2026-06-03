@@ -169,6 +169,8 @@ data class Config(
     val includeNoisyEvents: Boolean = false,
     /** Additional event names to exclude from the output, beyond ignoredEvents and (when !includeNoisyEvents) DEFAULT_NOISY_EVENTS. */
     val extraIgnoredEvents: Set<String> = emptySet(),
+    /** Directory for spill files; null = OS temp dir (java.io.tmpdir). */
+    val spillDir: Path? = null,
 ) {
     fun isExecutionSample(event: RecordedEvent) = isExecutionSample(event.eventType.name)
     fun isExecutionSample(eventType: String) = executionSampleType.matches(eventType)

@@ -45,6 +45,7 @@ import me.bechberger.jfrtofp.util.toMicros
 import me.bechberger.jfrtofp.util.toMillis
 import me.bechberger.jfrtofp.util.toNanos
 import java.io.OutputStream
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.NavigableMap
@@ -55,6 +56,9 @@ import kotlin.math.roundToLong
 import java.util.zip.GZIPOutputStream
 import kotlin.streams.toList
 import java.util.stream.LongStream
+import me.bechberger.jfrtofp.processor.SampleSpiller
+import me.bechberger.jfrtofp.processor.MarkerSpiller
+import me.bechberger.jfrtofp.util.BasicJSONGenerator
 
 fun EventType.generateSampleLikeMarkersConfig(config: Config): List<SampleLikeMarkerConfig> {
     val label = label ?: name
@@ -134,7 +138,14 @@ class ThreadProcessor(
     val basicInformation: BasicInformation,
     val markerSchema: MarkerSchemaProcessor,
     val tables: Tables,
+    private val spillDir: Path? = null,
 ) : EventProcessor() {
+    private val sampleSpiller: SampleSpiller? = spillDir?.let {
+        SampleSpiller(Files.createTempDirectory(it, "samples-$threadId-"))
+    }
+    private val markerSpiller: MarkerSpiller? = spillDir?.let {
+        MarkerSpiller(Files.createTempDirectory(it, "markers-$threadId-"))
+    }
     private var start: Instant = Instant.MIN
 
     private var end: Instant = Instant.MAX
@@ -148,9 +159,9 @@ class ThreadProcessor(
     val items: Int
         get() = _items
 
-    private val samplesTable: SamplesTableWrapper = SamplesTableWrapper(tables)
+    private val samplesTable: SamplesTableWrapper = SamplesTableWrapper(tables, sampleSpiller)
     private val rawMarkerTable: RawMarkerTableWrapper =
-        RawMarkerTableWrapper(tables, basicInformation, markerSchema)
+        RawMarkerTableWrapper(tables, basicInformation, markerSchema, markerSpiller)
 
     private var threadStartEvent: RecordedEvent? = null
     private var threadEndEvent: RecordedEvent? = null
@@ -266,6 +277,44 @@ class ThreadProcessor(
             markers = rawMarkerTable.toRawMarkerTable(),
             sampleLikeMarkersConfig = generateSampleLikeMarkersConfig(),
         )
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    fun writeTo(json: BasicJSONGenerator) {
+        json.writeStartObject()
+        json.writeSimpleField("processType", processType)
+        json.writeSimpleField("processStartupTime", start.toMillis())
+        json.writeSimpleField("processShutdownTime", end.toMillis())
+        json.writeSimpleField("registerTime", registerTime)
+        if (unregisterTime != null) json.writeSimpleField("unregisterTime", unregisterTime)
+        // pausedRanges — bounded list, use kotlinx
+        val sortedRanges = pausedRanges.sortedBy { it.startTime!! }
+        json.writeFieldName("pausedRanges")
+        jsonFormat.encodeToStream(sortedRanges, json.output)
+        json.writeFieldSep()
+        json.writeSimpleField("name", name)
+        json.writeSimpleField("isMainThread", name == "GeckoMain")
+        json.writeSimpleField("processName", "Parent Process")
+        json.writeSimpleField("pid", pid)
+        json.writeSimpleField("tid", tid)
+        // samples — streamed via spiller or in-memory path
+        json.writeFieldName("samples")
+        samplesTable.write(json, this::getCpuLoad)
+        json.writeFieldSep()
+        // markers — streamed via spiller or in-memory path
+        json.writeFieldName("markers")
+        rawMarkerTable.write(json)
+        // sampleLikeMarkersConfig
+        val slmConfig = generateSampleLikeMarkersConfig()
+        if (slmConfig.isNotEmpty()) {
+            json.writeFieldSep()
+            json.writeFieldName("sampleLikeMarkersConfig")
+            jsonFormat.encodeToStream(slmConfig, json.output)
+        }
+        json.writeEndObject()
+        // clean up spill files after write
+        sampleSpiller?.deleteChunks()
+        markerSpiller?.deleteChunks()
     }
 
     override fun isFinished() = threadEndEvent != null
@@ -848,69 +897,93 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
 
         val metaProcessor = MetaProcessor(jfrFile, basicInformation, markerSchema, config)
         val processCounterProcessor = ProcessCounterProcessor(basicInformation, config)
-        val parentThreadProcessor =
-            ThreadProcessor(config, true, -1, basicInformation, markerSchema, tables)
 
-        RecordingFile(jfrFile).use { file ->
-            while (file.hasMoreEvents()) {
-                val event = file.readEvent()
-                if (config.isIgnoredEvent(event.eventType.name)) {
-                    continue
-                }
-                metaProcessor.processEvent(event)
-                processCounterProcessor.processEvent(event)
-                val realThread = event.realThread
-                if (realThread != null) {
-                    if (!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) {
+        // Spill dir: each thread gets its own subdirectory inside a per-process temp dir.
+        val spillRoot = Files.createTempDirectory(config.spillDir ?: Path.of(System.getProperty("java.io.tmpdir")), "jfrtofp-")
+        val parentThreadProcessor =
+            ThreadProcessor(config, true, -1, basicInformation, markerSchema, tables, spillRoot)
+
+        try {
+            RecordingFile(jfrFile).use { file ->
+                while (file.hasMoreEvents()) {
+                    val event = file.readEvent()
+                    if (config.isIgnoredEvent(event.eventType.name)) {
                         continue
                     }
-                    val processor =
-                        threadToProcessor.getOrPut(realThread.id) {
-                            ThreadProcessor(
-                                config,
-                                false,
-                                realThread.id,
-                                basicInformation,
-                                markerSchema,
-                                tables,
-                            )
+                    metaProcessor.processEvent(event)
+                    processCounterProcessor.processEvent(event)
+                    val realThread = event.realThread
+                    if (realThread != null) {
+                        if (!config.includeGCThreads && metaProcessor.isGCThread(realThread.id)) {
+                            continue
                         }
-                    processor.processEvent(event)
-                } else {
-                    parentThreadProcessor.processEvent(event)
+                        val processor =
+                            threadToProcessor.getOrPut(realThread.id) {
+                                ThreadProcessor(
+                                    config,
+                                    false,
+                                    realThread.id,
+                                    basicInformation,
+                                    markerSchema,
+                                    tables,
+                                    spillRoot,
+                                )
+                            }
+                        processor.processEvent(event)
+                    } else {
+                        parentThreadProcessor.processEvent(event)
+                    }
                 }
             }
+
+            // Build bounded shared tables (grow with unique identifiers only, not sample count).
+            val shared =
+                SharedData(
+                    stringArray = tables.stringTable.toStringTable(),
+                    stackTable = tables.stackTraceTable.toStackTable(),
+                    frameTable = tables.frameTable.toFrameTable(),
+                    funcTable = tables.funcTable.toFuncTable(),
+                    resourceTable = tables.resourceTable.toResourceTable(),
+                    nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf(), listOf()),
+                    sources = tables.sourceTable.toSourceTable(),
+                )
+
+            val sortedThreadInfos = metaProcessor.sortedThreads()
+
+            // Stream the profile JSON directly — write meta/shared/counters via kotlinx
+            // (bounded size), then stream each thread's samples and markers via spillers.
+            val json = BasicJSONGenerator(outputStream)
+            json.writeStartObject()
+            json.writeFieldName("meta")
+            jsonFormat.encodeToStream(metaProcessor.toMeta(), json.output)
+            json.writeFieldSep()
+            json.writeFieldName("libs")
+            json.writeEmptyArray()
+            json.writeFieldSep()
+            json.writeFieldName("shared")
+            jsonFormat.encodeToStream(shared, json.output)
+            json.writeFieldSep()
+            json.writeFieldName("counters")
+            jsonFormat.encodeToStream(processCounterProcessor.generateCounters(metaProcessor.endTime), json.output)
+            json.writeFieldSep()
+            json.writeFieldName("threads")
+            json.writeStartArray()
+            var firstThread = true
+            for (info in sortedThreadInfos) {
+                val processor = when (info) {
+                    is ParentThreadInfo -> parentThreadProcessor
+                    is BasicThreadInfo -> threadToProcessor[info.id]
+                        ?: error("Thread ${info.id} ${info.name} not found")
+                }
+                if (!firstThread) json.writeFieldSep()
+                firstThread = false
+                processor.writeTo(json)
+            }
+            json.writeEndArray()
+            json.writeEndObject()
+        } finally {
+            spillRoot.toFile().deleteRecursively()
         }
-        val threads =
-            metaProcessor.sortedThreads().map { info ->
-                when (info) {
-                    is ParentThreadInfo -> parentThreadProcessor.toThread()
-                    is BasicThreadInfo ->
-                        threadToProcessor[info.id]?.toThread()
-                            ?: error("Thread ${info.id} ${info.name} not found")
-                }
-            }
-
-        val shared =
-            SharedData(
-                stringArray = tables.stringTable.toStringTable(),
-                stackTable = tables.stackTraceTable.toStackTable(),
-                frameTable = tables.frameTable.toFrameTable(),
-                funcTable = tables.funcTable.toFuncTable(),
-                resourceTable = tables.resourceTable.toResourceTable(),
-                nativeSymbols = NativeSymbolTable(listOf(), listOf(), listOf(), listOf()),
-                sources = tables.sourceTable.toSourceTable(),
-            )
-
-        val profile =
-            Profile(
-                meta = metaProcessor.toMeta(),
-                libs = listOf(),
-                shared = shared,
-                counters = processCounterProcessor.generateCounters(metaProcessor.endTime),
-                threads = threads,
-            )
-        jsonFormat.encodeToStream(profile, outputStream)
     }
 }
 
