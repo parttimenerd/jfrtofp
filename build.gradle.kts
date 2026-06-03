@@ -14,6 +14,7 @@ repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
     gradlePluginPortal()
+    mavenLocal()
 }
 
 plugins {
@@ -81,6 +82,7 @@ dependencies {
     implementation("info.picocli:picocli:4.7.5")
     implementation("org.jline:jline-reader:3.25.1")
     implementation("org.ow2.asm:asm:9.6")
+    implementation("io.btrace:jafar-parser:0.24.0")
 }
 
 tasks.test {
@@ -109,7 +111,7 @@ tasks.register<Copy>("copyHooks") {
 tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))
 
 // Large-file OOM acceptance test. Run with: ./gradlew largeFileTest -PrunLarge=true
-// Converts a 418 MB JFR under -Xmx512m; success means no OOM.
+// Converts several JFR files (14–90 MB) under -Xmx512m; success means no OOM.
 if (project.hasProperty("runLarge")) {
     tasks.register<JavaExec>("largeFileTest") {
         dependsOn("shadowJar")
@@ -117,7 +119,8 @@ if (project.hasProperty("runLarge")) {
         description = "Convert large JFR files under -Xmx512m to verify no OOM"
         classpath = files(tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile)
         mainClass.set("me.bechberger.jfrtofp.MainKt")
-        val largeJfr = "/Users/i560383_1/code/experiments/condensed-data/benchmark/renaissance-all_gc_details_G1.jfr"
+        val benchDir = "/Users/i560383_1/code/experiments/condensed-data/benchmark"
+        val largeJfr = "$benchDir/renaissance-all_gc_G1.jfr"       // 29 MB, high thread count
         val outFile = layout.buildDirectory.file("large-test-out.json.gz").get().asFile.absolutePath
         args = listOf(largeJfr, "-o", outFile)
         jvmArgs = listOf("-Xmx512m")

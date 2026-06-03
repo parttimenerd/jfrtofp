@@ -176,13 +176,20 @@ data class Config(
     /** Directory for spill files; null = OS temp dir (java.io.tmpdir). */
     val spillDir: Path? = null,
 ) {
+    // Per-type name caches to avoid Regex.matches() and set lookups on every event
+    private val executionSampleCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val ignoredEventCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
     fun isExecutionSample(event: RecordedEvent) = isExecutionSample(event.eventType.name)
-    fun isExecutionSample(eventType: String) = executionSampleType.matches(eventType)
+    fun isExecutionSample(eventType: String): Boolean =
+        executionSampleCache.getOrPut(eventType) { executionSampleType.matches(eventType) }
 
     fun isIgnoredEvent(eventName: String): Boolean =
-        eventName in ignoredEvents ||
-            (!includeNoisyEvents && eventName in DEFAULT_NOISY_EVENTS) ||
-            eventName in extraIgnoredEvents
+        ignoredEventCache.getOrPut(eventName) {
+            eventName in ignoredEvents ||
+                (!includeNoisyEvents && eventName in DEFAULT_NOISY_EVENTS) ||
+                eventName in extraIgnoredEvents
+        }
 
     companion object {
         val DEFAULT_ADDED_MEMORY_PROPERTIES = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP)
@@ -215,6 +222,7 @@ data class Config(
         /** High-volume GC/metaspace detail events that inflate JSON size with low visualization value. Off by default; opt in with --include-noisy-events. */
         val DEFAULT_NOISY_EVENTS =
             setOf(
+                "jdk.ThreadDump",
                 "jdk.MetaspaceChunkFreeListSummary",
                 "jdk.MetaspaceSummary",
                 "jdk.MetaspaceGCThreshold",
@@ -238,6 +246,10 @@ data class Config(
                 "jdk.PromoteObjectInNewPLAB",
                 "jdk.PromoteObjectOutsidePLAB",
                 "jdk.GCCPUTime",
+                // Legacy TLAB allocation event — superseded by jdk.ObjectAllocationSample in JDK 16+.
+                // When both fire (e.g. with -XX:+AlwaysPreTouch + sample profiling) they capture the
+                // same allocations; the legacy event is millions of rows. ObjectAllocationSample stays on.
+                "jdk.ObjectAllocationInNewTLAB",
                 // High-volume G1GC region tracking events (millions per recording on G1)
                 "jdk.G1HeapRegionTypeChange",
                 "jdk.G1HeapRegionInformation",

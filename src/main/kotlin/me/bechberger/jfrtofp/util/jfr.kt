@@ -5,6 +5,9 @@ import jdk.jfr.consumer.RecordedClass
 import jdk.jfr.consumer.RecordedEvent
 import jdk.jfr.consumer.RecordedMethod
 import jdk.jfr.consumer.RecordedThread
+import me.bechberger.jfrtofp.processor.JFRThread
+import me.bechberger.jfrtofp.processor.MethodKey
+import me.bechberger.jfrtofp.processor.ParsedJFREvent
 import me.bechberger.jfrtofp.types.Milliseconds
 import org.objectweb.asm.Type
 import java.nio.file.Path
@@ -180,6 +183,7 @@ typealias Percentage = Float
 /** Helps to format types and other byte code related things */
 object ByteCodeHelper {
     fun formatFunctionWithClass(func: RecordedMethod) = "${func.type.className}.${func.name}${formatDescriptor(func.descriptor)}"
+    fun formatFunctionWithClass(key: MethodKey) = key.formattedWithClass()
 
     fun formatDescriptor(descriptor: String): String {
         val args = "(${
@@ -265,3 +269,34 @@ data class HashableRecordedMethod(val method: RecordedMethod, private var hash: 
         return equals(other.method)
     }
 }
+
+// ── Extensions for ParsedJFREvent / JFRThread ─────────────────────────────────
+
+fun JFRThread.isSystemThread(): Boolean {
+    if (isVirtual) return false
+    if (javaName == null) return true
+    val n = javaName
+    return n in SYSTEM_THREAD_EXACT_NAMES ||
+        SYSTEM_THREAD_PREFIXES.any { n.startsWith(it) } ||
+        SYSTEM_THREAD_SUBSTRINGS.any { it in n }
+}
+
+fun JFRThread.isGCThread() = !isVirtual && (osName?.startsWith("GC Thread") == true) && javaName == null
+
+val ParsedJFREvent.realThread: JFRThread? get() = thread
+
+val ParsedJFREvent.realThreadId: Long
+    get() = thread?.id ?: PROCESS_THREAD_ID
+
+val ParsedJFREvent.sampledThreadOrNull: JFRThread?
+    get() {
+        if (fields.containsKey("sampledThread.javaName") || fields.containsKey("sampledThread.osName")) {
+            val id = (fields["sampledThread.javaThreadId"] as? Long) ?: (fields["sampledThread.osThreadId"] as? Long) ?: -1L
+            val javaName = fields["sampledThread.javaName"]?.toString()
+            val osName = fields["sampledThread.osName"]?.toString()
+            return JFRThread(id, javaName, osName)
+        }
+        return thread
+    }
+
+val ParsedJFREvent.sampledThread: JFRThread get() = sampledThreadOrNull!!

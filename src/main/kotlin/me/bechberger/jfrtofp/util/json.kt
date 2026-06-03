@@ -130,7 +130,8 @@ class BasicJSONGenerator(val output: OutputStream) {
     }
 
     fun writeFieldName(name: String) {
-        output.write("\"$name\":".toByteArray())
+        writeString(name)
+        output.write(':'.code)
     }
 
     fun writeEmptyArray() {
@@ -143,7 +144,7 @@ class BasicJSONGenerator(val output: OutputStream) {
         last: Boolean = false,
     ) {
         writeFieldName(name)
-        output.write("\"$value\"".toByteArray())
+        writeString(value)
         if (!last) {
             output.write(','.code)
         }
@@ -209,13 +210,30 @@ class BasicJSONGenerator(val output: OutputStream) {
     }
 
     fun write(raw: String) {
-        val writer = OutputStreamWriter(output)
-        writer.write(raw)
-        writer.flush()
+        // Avoid allocating an OutputStreamWriter (8KB ByteBuffer + UTF_8.Encoder + StreamEncoder)
+        // per call — that path was the dominant byte[] allocator under marker emission.
+        // Most callers (numbers, JSON tokens) are pure ASCII; toByteArray() is also correct for any UTF-8.
+        output.write(raw.toByteArray())
     }
 
     fun writeString(string: String) {
-        write("\"$string\"")
+        // Manually escape to avoid StringBuilder allocation from Kotlin string escape
+        output.write('"'.code)
+        for (ch in string) {
+            when (ch) {
+                '"' -> { output.write('\\'.code); output.write('"'.code) }
+                '\\' -> { output.write('\\'.code); output.write('\\'.code) }
+                '\n' -> { output.write('\\'.code); output.write('n'.code) }
+                '\r' -> { output.write('\\'.code); output.write('r'.code) }
+                '\t' -> { output.write('\\'.code); output.write('t'.code) }
+                else -> if (ch.code < 0x20) {
+                    output.write("\\u%04x".format(ch.code).toByteArray())
+                } else {
+                    output.write(ch.code)
+                }
+            }
+        }
+        output.write('"'.code)
     }
 
     fun <T> writeArrayField(
@@ -309,5 +327,77 @@ class BasicJSONGenerator(val output: OutputStream) {
 
     fun writeFieldSep() {
         output.write(','.code)
+    }
+
+    /** Write a [JsonElement] value (not a field, just the value). */
+    fun writeJsonElement(element: JsonElement) {
+        when (element) {
+            is JsonNull -> output.write("null".toByteArray())
+            is JsonPrimitive -> output.write(element.toString().toByteArray())
+            is JsonArray -> {
+                writeStartArray()
+                element.forEachIndexed { i, e ->
+                    if (i > 0) writeFieldSep()
+                    writeJsonElement(e)
+                }
+                writeEndArray()
+            }
+            is JsonObject -> {
+                writeStartObject()
+                var first = true
+                for ((k, v) in element) {
+                    if (!first) writeFieldSep()
+                    first = false
+                    writeFieldName(k)
+                    writeJsonElement(v)
+                }
+                writeEndObject()
+            }
+        }
+    }
+
+    /**
+     * Write any Kotlin/Java value as JSON (covers the output of [MarkerType.convert]):
+     * Long, Double, Boolean, String, Map, Collection, null.
+     */
+    fun writeAnyValue(value: Any?) {
+        when (value) {
+            null -> output.write("null".toByteArray())
+            is Long -> write(value.toString())
+            is Int -> write(value.toString())
+            is Double -> write(value.toString())
+            is Float -> write(value.toString())
+            is Boolean -> output.write(value.toString().toByteArray())
+            is String -> writeString(value)
+            is Map<*, *> -> {
+                writeStartObject()
+                var first = true
+                for ((k, v) in value) {
+                    if (!first) writeFieldSep()
+                    first = false
+                    writeFieldName(k.toString())
+                    writeAnyValue(v)
+                }
+                writeEndObject()
+            }
+            is Collection<*> -> {
+                writeStartArray()
+                value.forEachIndexed { i, v ->
+                    if (i > 0) writeFieldSep()
+                    writeAnyValue(v)
+                }
+                writeEndArray()
+            }
+            is Array<*> -> {
+                writeStartArray()
+                value.forEachIndexed { i, v ->
+                    if (i > 0) writeFieldSep()
+                    writeAnyValue(v)
+                }
+                writeEndArray()
+            }
+            is JsonElement -> writeJsonElement(value)
+            else -> writeString(value.toString())
+        }
     }
 }

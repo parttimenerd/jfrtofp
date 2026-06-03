@@ -20,6 +20,27 @@ no file leaves your machine and no Java/JVM is needed locally.
 For batch conversion, integration into another tool, or large recordings where
 the in-browser converter is too slow, keep using `jfrtofp` / `jfrtofp-server` below.
 
+## Memory requirements
+
+Output-side memory is bounded by the streaming spiller (`--spill-dir` for the
+temp directory). Input-side memory is governed by the underlying
+[jafar](https://github.com/btraceio/jafar) parser, which buffers per-chunk
+constant pools while deserializing events.
+
+Rough guidance:
+
+| JFR size | Recommended `-Xmx` |
+|---|---|
+| ≤ 100 MB | 1 GB |
+| 100-200 MB | 2 GB |
+| 200 MB+ of GC-detail-heavy events (e.g. `jdk.G1HeapRegionTypeChange`, `jdk.GCPhaseParallel`) | 4 GB |
+
+GC-detail-heavy recordings are the worst case because each event carries a
+nested payload that the parser materializes before our handler sees it.
+Filtering with `--exclude-event` does *not* lower input-side heap (the events
+are already deserialized when filtering happens). Use `jfr disassemble` /
+`jfr summary` first if you suspect a recording is dominated by one noisy event.
+
 ## Basic Usage
 
 We recommend using the [jfrtofp-server](https://github.com/parttimenerd/jfrtofp-server) which includes a

@@ -18,7 +18,7 @@ import java.util.zip.GZIPOutputStream
 class SampleSpiller(val tempDir: Path, val chunkSize: Int = 65_536) {
     data class Row(val stack: Int, val time: Double)
 
-    private val buffer = ArrayList<Row>(chunkSize)
+    private val buffer = ArrayList<Row>(minOf(chunkSize, 16))
     private val chunkPaths = mutableListOf<Path>()
     var count: Long = 0L
         private set
@@ -107,7 +107,7 @@ class MarkerSpiller(val tempDir: Path, val chunkSize: Int = 16_384) {
             compareValuesBy(this, other, { it.startTime ?: Double.MAX_VALUE }, { it.name })
     }
 
-    private val buffer = ArrayList<Row>(chunkSize)
+    private val buffer = ArrayList<Row>(minOf(chunkSize, 16))
     private val chunkPaths = mutableListOf<Path>()
     var count: Long = 0L
         private set
