@@ -77,6 +77,9 @@ class ConfigMixin {
     @CommandLine.Option(names = ["--exclude-event"], description = ["Exclude a specific event type (repeatable)"])
     var extraIgnoredEvents: List<String> = emptyList()
 
+    @CommandLine.Option(names = ["--spill-dir"], description = ["Directory for temporary spill files during conversion (default: OS temp dir)"])
+    var spillDir: String? = null
+
     fun toConfig() =
         Config(
             nonProjectPackagePrefixes = nonProjectPackagePrefixes,
@@ -86,6 +89,7 @@ class ConfigMixin {
             executionSampleType = executionSampleType.replace(".", "\\.").replace("*", ".*").toRegex(),
             includeNoisyEvents = includeNoisyEvents,
             extraIgnoredEvents = extraIgnoredEvents.toSet(),
+            spillDir = spillDir?.let { java.nio.file.Path.of(it) },
         )
 
     @CommandLine.Command(
