@@ -71,13 +71,21 @@ class ConfigMixin {
     @CommandLine.Option(names = ["--execution-sample-type"], description = ["Glob pattern (* and | supported) that matches the used execution sample type"])
     var executionSampleType: String = "jdk.ExecutionSample|jdk.NativeMethodSample|jdk.CPUTimeSample"
 
+    @CommandLine.Option(names = ["--include-noisy-events"], description = ["Include high-volume GC/metaspace detail events that are filtered by default"])
+    var includeNoisyEvents: Boolean = false
+
+    @CommandLine.Option(names = ["--exclude-event"], description = ["Exclude a specific event type (repeatable)"])
+    var extraIgnoredEvents: List<String> = emptyList()
+
     fun toConfig() =
         Config(
             nonProjectPackagePrefixes = nonProjectPackagePrefixes,
             maxExecutionSamplesPerThread = maxExecutionSamplesPerThread,
             maxMiscSamplesPerThread = maxMiscSamplesPerThread,
             sourceUrl = sourceUrl,
-            executionSampleType = executionSampleType.replace(".", "\\.").replace("*", ".*").toRegex()
+            executionSampleType = executionSampleType.replace(".", "\\.").replace("*", ".*").toRegex(),
+            includeNoisyEvents = includeNoisyEvents,
+            extraIgnoredEvents = extraIgnoredEvents.toSet(),
         )
 
     @CommandLine.Command(
@@ -143,9 +151,32 @@ data class Config(
     /** minimum number of samples or markers a event has to have */
     val minRequiredItemsPerThread: Int = DEFAULT_MIN_ITEMS_PER_THREAD,
     val executionSampleType: Regex = "jdk.ExecutionSample|jdk.NativeMethodSample|jdk.CPUTimeSample".toRegex(),
+    /** emit the eventDelay array (always zeros for JFR; omitting saves ~36 KB per profile) */
+    val emitEventDelay: Boolean = false,
+    /**
+     * Strip redundant keys from marker data payloads:
+     * - data["type"]: duplicates the table-level name column
+     * - data["startTime"]: duplicates the table-level startTime column
+     * - cause["time"] ISO-8601 strings in STACKTRACE payloads: duplicates marker startTime
+     * Saves ~1.6 MB per profile uncompressed. Default on.
+     */
+    val minimalMarkerPayload: Boolean = true,
+    /** Drop JFR sentinel Long values (Long.MIN_VALUE / Long.MAX_VALUE) that signal "no value" (e.g. ThreadPark timeout = no timeout). Default on. */
+    val dropSentinelValues: Boolean = true,
+    /** Decimal places for timestamp and duration arrays. 4 = 0.1µs resolution, saving ~3 chars/value vs full Double. -1 = disable. */
+    val timestampDecimals: Int = 4,
+    /** When true, suppress DEFAULT_NOISY_EVENTS from the output (large GC/metaspace detail events with high per-event byte cost). Default on. */
+    val includeNoisyEvents: Boolean = false,
+    /** Additional event names to exclude from the output, beyond ignoredEvents and (when !includeNoisyEvents) DEFAULT_NOISY_EVENTS. */
+    val extraIgnoredEvents: Set<String> = emptySet(),
 ) {
     fun isExecutionSample(event: RecordedEvent) = isExecutionSample(event.eventType.name)
     fun isExecutionSample(eventType: String) = executionSampleType.matches(eventType)
+
+    fun isIgnoredEvent(eventName: String): Boolean =
+        eventName in ignoredEvents ||
+            (!includeNoisyEvents && eventName in DEFAULT_NOISY_EVENTS) ||
+            eventName in extraIgnoredEvents
 
     companion object {
         val DEFAULT_ADDED_MEMORY_PROPERTIES = listOf(MemoryProperty.USED_HEAP, MemoryProperty.COMMITTED_HEAP)
@@ -174,6 +205,33 @@ data class Config(
                 "jdk.SystemProcess",
                 "jdk.ModuleExport",
                 "jdk.ModuleRequire",
+            )
+        /** High-volume GC/metaspace detail events that inflate JSON size with low visualization value. Off by default; opt in with --include-noisy-events. */
+        val DEFAULT_NOISY_EVENTS =
+            setOf(
+                "jdk.MetaspaceChunkFreeListSummary",
+                "jdk.MetaspaceSummary",
+                "jdk.MetaspaceGCThreshold",
+                "jdk.GCPhasePauseLevel1",
+                "jdk.GCPhasePauseLevel2",
+                "jdk.GCPhasePauseLevel3",
+                "jdk.GCPhasePauseLevel4",
+                "jdk.GCPhaseConcurrent",
+                "jdk.GCPhaseConcurrentLevel1",
+                "jdk.GCPhaseParallel",
+                "jdk.G1AdaptiveIHOP",
+                "jdk.G1BasicIHOP",
+                "jdk.G1MMU",
+                "jdk.G1HeapSummary",
+                "jdk.GCHeapSummary",
+                "jdk.G1EvacuationOldStatistics",
+                "jdk.G1EvacuationYoungStatistics",
+                "jdk.GCReferenceStatistics",
+                "jdk.TenuringDistribution",
+                "jdk.EvacuationInformation",
+                "jdk.PromoteObjectInNewPLAB",
+                "jdk.PromoteObjectOutsidePLAB",
+                "jdk.GCCPUTime",
             )
         const val DEFAULT_MIN_ITEMS_PER_THREAD = 3
     }

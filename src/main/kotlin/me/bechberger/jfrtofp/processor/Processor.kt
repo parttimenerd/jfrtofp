@@ -854,7 +854,7 @@ class SimpleProcessor(config: Config, jfrFile: Path) : Processor(config, jfrFile
         RecordingFile(jfrFile).use { file ->
             while (file.hasMoreEvents()) {
                 val event = file.readEvent()
-                if (event.eventType.name in config.ignoredEvents) {
+                if (config.isIgnoredEvent(event.eventType.name)) {
                     continue
                 }
                 metaProcessor.processEvent(event)

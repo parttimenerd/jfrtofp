@@ -1,14 +1,23 @@
 package me.bechberger.jfrtofp.util
 
+import java.util.Locale
+import kotlin.math.pow
+import kotlin.math.roundToLong
+
+/** Rounds [this] to [decimals] decimal places. Negative [decimals] is a no-op. */
+fun Double.quantize(decimals: Int): Double {
+    if (decimals < 0) return this
+    val factor = 10.0.pow(decimals)
+    return (this * factor).roundToLong().toDouble() / factor
+}
+
 /** based on the code from Firefox Profiler */
 fun Long.formatBytes(): String {
     fun formatNumber(number: Double): String {
-        return "%,.2f".format(number)
+        return "%,.2f".format(Locale.US, number)
     }
 
     if (this < 10000) {
-        // Use singles up to 10,000.  I think 9,360B looks nicer than 9.36KB.
-        // We use "0" for significantDigits because bytes will always be integers.
         return "${formatNumber(this * 1.0)}B"
     }
     if (this < 1024 * 1024) {

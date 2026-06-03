@@ -252,10 +252,13 @@ enum class MarkerType(
         if (st.frames.isEmpty()) {
             0
         } else {
-            mutableMapOf<String, Any?>(
+            val map = mutableMapOf<String, Any?>(
                 "stack" to tables.stackTraceTable.getStack(st, Int.MAX_VALUE),
-                "time" to startTime,
             )
+            if (!tables.config.minimalMarkerPayload) {
+                map["time"] = startTime
+            }
+            map
         }
     }),
     SYMBOL(STRING),

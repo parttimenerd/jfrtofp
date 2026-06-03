@@ -36,6 +36,7 @@ import me.bechberger.jfrtofp.util.jsonFormat
 import me.bechberger.jfrtofp.util.pkg
 import me.bechberger.jfrtofp.util.toJsonElement
 import me.bechberger.jfrtofp.util.toMillis
+import me.bechberger.jfrtofp.util.quantize
 import java.util.IdentityHashMap
 
 /** Wraps the [SamplesTable] class */
@@ -45,6 +46,8 @@ class SamplesTableWrapper(val tables: Tables) {
     private val items: MutableList<Item> = mutableListOf()
 
     fun processEvent(event: RecordedEvent) {
+        val cap = tables.config.maxExecutionSamplesPerThread
+        if (cap >= 0 && items.size >= cap) return
         items.add(
             Item(
                 event.stackTrace.let {
@@ -59,7 +62,7 @@ class SamplesTableWrapper(val tables: Tables) {
 
     fun toSamplesTable(cpuLoad: (Milliseconds) -> Percentage): SamplesTable {
         val sortedItems = items.sortedBy { it.time }
-        val time = sortedItems.map { it.time }
+        val time = sortedItems.map { it.time.quantize(tables.config.timestampDecimals) }
         val stack = sortedItems.map { it.stack }
 
         // Declared unit is µs (see SampleUnits.threadCPUDelta in MetaProcessor).
@@ -70,7 +73,7 @@ class SamplesTableWrapper(val tables: Tables) {
                 threadCPUDelta.add(0.0)
             } else {
                 threadCPUDelta.add(
-                    (time[i] - time[i - 1]) * 1000.0 * cpuLoad(time[i]),
+                    ((time[i] - time[i - 1]) * 1000.0 * cpuLoad(time[i])).quantize(tables.config.timestampDecimals),
                 )
             }
         }
@@ -88,9 +91,11 @@ class SamplesTableWrapper(val tables: Tables) {
         val samplesTable = toSamplesTable(cpuLoad)
         json.writeStartObject()
         json.writeNumberArrayField("stack", samplesTable.stack)
-        json.writeNumberArrayField("time", samplesTable.time)
-        json.writeNumberArrayField("threadCPUDelta", samplesTable.threadCPUDelta!!)
-        json.writeSingleValueArrayField("eventDelay", "0.0", samplesTable.stack.size)
+        json.writeQuantizedNumberArrayField("time", samplesTable.time, tables.config.timestampDecimals)
+        json.writeQuantizedNumberArrayField("threadCPUDelta", samplesTable.threadCPUDelta!!, tables.config.timestampDecimals)
+        if (tables.config.emitEventDelay) {
+            json.writeSingleValueArrayField("eventDelay", "0.0", samplesTable.stack.size)
+        }
         json.writeSimpleField("weightType", "samples")
         json.writeSimpleField("length", samplesTable.stack.size, last = true)
         json.writeEndObject()
@@ -181,21 +186,26 @@ class RawMarkerTableWrapper(
     private val items: MutableList<Item> = mutableListOf()
 
     fun processEvent(event: RecordedEvent) {
+        val cap = tables.config.maxMiscSamplesPerThread
+        if (cap >= 0 && items.size >= cap) return
         val fieldMapping: MarkerSchemaFieldMapping = markerSchema[event.eventType] ?: return
         val name = tables.getString(event.eventType.name)
-        val startTime = event.startTime.toMillis()
-        val endTime = event.endTime.toMillis()
+        val startTime = event.startTime.toMillis().quantize(tables.config.timestampDecimals)
+        val endTime = event.endTime.toMillis().quantize(tables.config.timestampDecimals)
         val phase = if (event.endTime == event.startTime) 0 else 1 // instant vs interval
         val category = CategoryE.fromName(event.eventType.categoryNames.firstOrNull() ?: "Other").index
         val startTimeInstant = event.startTime
         val data =
             fieldMapping.fields.map { field ->
                 field.getValue(event)?.let { value ->
+                    if (tables.config.dropSentinelValues && value is Long && (value == Long.MIN_VALUE || value == Long.MAX_VALUE)) return@let null
                     field.targetName to field.type.convert(tables, startTimeInstant, value).toJsonElement()
                 }
             }.filterNotNull().toMap(mutableMapOf())
-        data["type"] = event.eventType.name.toJsonElement()
-        data["startTime"] = (event.startTime.toMillis() - basicInformation.startTimeMillis).toJsonElement()
+        if (!tables.config.minimalMarkerPayload) {
+            data["type"] = event.eventType.name.toJsonElement()
+            data["startTime"] = (event.startTime.toMillis() - basicInformation.startTimeMillis).toJsonElement()
+        }
         when (event.eventType.name) {
             "jdk.ObjectAllocationSample" -> {
                 data["_class"] =
@@ -229,8 +239,8 @@ class RawMarkerTableWrapper(
         json.writeStartObject()
 
         json.writeNumberArrayField("name", sortedItems.map { it.name })
-        json.writeNumberArrayField("startTime", sortedItems.map { it.startTime })
-        json.writeNumberArrayField("endTime", sortedItems.map { it.endTime })
+        json.writeQuantizedNumberArrayField("startTime", sortedItems.map { it.startTime }, tables.config.timestampDecimals)
+        json.writeQuantizedNumberArrayField("endTime", sortedItems.map { it.endTime }, tables.config.timestampDecimals)
         json.writeNumberArrayField("phase", sortedItems.map { it.phase })
         json.writeNumberArrayField("category", sortedItems.map { it.category })
         json.writeSimpleField("length", sortedItems.size)

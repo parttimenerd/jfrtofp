@@ -48,7 +48,7 @@ fun Any?.toJsonElement(): JsonElement =
 val jsonFormat =
     Json {
         prettyPrint = false
-        encodeDefaults = true
+        encodeDefaults = false
         explicitNulls = false
     }
 
@@ -251,6 +251,24 @@ class BasicJSONGenerator(val output: OutputStream) {
         last: Boolean = false,
     ) {
         writeArrayField(name, array, { if (it == null) write("null") else write(it.toString()) }, last)
+    }
+
+    /** Write a numeric array field with values truncated to [decimals] decimal places. Negative [decimals] disables truncation. */
+    fun writeQuantizedNumberArrayField(
+        name: String,
+        array: List<Double?>,
+        decimals: Int,
+        last: Boolean = false,
+    ) {
+        if (decimals < 0) {
+            writeNumberArrayField(name, array, last)
+            return
+        }
+        val factor = Math.pow(10.0, decimals.toDouble())
+        writeArrayField(name, array, { v ->
+            if (v == null) write("null")
+            else write((Math.round(v * factor).toDouble() / factor).toString())
+        }, last)
     }
 
     fun <T : Boolean?> writeBooleanArrayField(
