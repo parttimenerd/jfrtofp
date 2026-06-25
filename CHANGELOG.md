@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Fix: remove `jdk.GCHeapSummary` from `DEFAULT_NOISY_EVENTS` — it is the sole
+  source for the memory counter tracks (Used/Committed heap) and must not be
+  filtered by default
+  (see https://github.com/parttimenerd/intellij-profiler-plugin/issues/37)
+- Pre-scan pass now skips per-event field flattening for events whose fields
+  it doesn't read (everything except `jdk.JVMInformation`, `jdk.ActiveRecording`,
+  `jdk.CPUInformation`, `jdk.OSInformation`, and execution samples). On the
+  250 MB ZGC benchmark this trims wall time ~8% and user CPU ~7%
+- Add seven ZGC bookkeeping events to `DEFAULT_NOISY_EVENTS`:
+  `jdk.ZStatisticsCounter`, `jdk.ZStatisticsSampler`, `jdk.ZThreadPhase`,
+  `jdk.ZUnmap`, `jdk.ZRelocationSet`, `jdk.ZRelocationSetGroup`,
+  `jdk.ZAllocationStall`. On a 94 MB ZGC recording these cut gzipped output
+  ~86% (7.04 MB → 0.99 MB) and wall time ~76% (11.8s → 2.8s). Opt back in with
+  `--include-noisy-events`
+
+## [0.0.7]
+
 - Fix handling of files without execution samples
   - (see https://github.com/parttimenerd/intellij-profiler-plugin/issues/30)
 - Add `--execution-sample-type` to specify the type of execution samples to use

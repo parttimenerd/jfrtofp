@@ -237,7 +237,9 @@ data class Config(
                 "jdk.G1BasicIHOP",
                 "jdk.G1MMU",
                 "jdk.G1HeapSummary",
-                "jdk.GCHeapSummary",
+                // jdk.GCHeapSummary is intentionally excluded: it is the sole source for the
+                // memory counter tracks (Used/Committed heap). Filtering it silently removes the
+                // memory timeline. See parttimenerd/intellij-profiler-plugin#37.
                 "jdk.G1EvacuationOldStatistics",
                 "jdk.G1EvacuationYoungStatistics",
                 "jdk.GCReferenceStatistics",
@@ -255,6 +257,16 @@ data class Config(
                 "jdk.G1HeapRegionInformation",
                 // Other high-volume detail events
                 "jdk.ObjectCountAfterGC",
+                // High-volume ZGC events. On a 94 MB ZGC recording, jdk.ZStatisticsCounter alone
+                // accounted for ~65% of marker payload bytes; filtering all seven cut the gzipped
+                // output ~7.0 MB → ~1.0 MB and wall time ~11.8s → ~2.8s.
+                "jdk.ZStatisticsCounter",
+                "jdk.ZStatisticsSampler",
+                "jdk.ZThreadPhase",
+                "jdk.ZUnmap",
+                "jdk.ZRelocationSet",
+                "jdk.ZRelocationSetGroup",
+                "jdk.ZAllocationStall",
             )
         const val DEFAULT_MIN_ITEMS_PER_THREAD = 3
     }
