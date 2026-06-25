@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.0.8]
+
 - Fix: remove `jdk.GCHeapSummary` from `DEFAULT_NOISY_EVENTS` — it is the sole
   source for the memory counter tracks (Used/Committed heap) and must not be
   filtered by default
