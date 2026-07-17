@@ -314,7 +314,26 @@ data class BasicInformation(
             val initialEnvironmentVariables: MutableMap<String, String> = mutableMapOf()
             val systemProcesses: MutableList<Map<String, String>> = mutableListOf()
 
-            JafarReader.read(jfrFile) { event ->
+            // Pre-scan reads only a fixed set of event fields. For everything else
+            // (the millions of "uninteresting" events), we still need to observe their thread
+            // (to find "main") and timestamp, but we don't need their fields. skipFields=true
+            // for those types skips the per-event fields HashMap + flattening, which dominated
+            // allocations on large recordings.
+            val preScanReadFieldsTypes = buildSet {
+                add("jdk.JVMInformation")
+                add("jdk.ActiveRecording")
+                add("jdk.CPUInformation")
+                add("jdk.OSInformation")
+                if (config.includeInitialSystemProperty) add("jdk.InitialSystemProperty")
+                if (config.includeInitialEnvironmentVariables) add("jdk.InitialEnvironmentVariable")
+                if (config.includeSystemProcesses) add("jdk.SystemProcess")
+            }
+            JafarReader.read(
+                jfrFile,
+                skipFieldsFilter = { typeName ->
+                    typeName !in preScanReadFieldsTypes && !config.isExecutionSample(typeName)
+                },
+            ) { event ->
                 if (firstEventStartMs == null && event.startMs > 0) firstEventStartMs = event.startMs
                 event.realThread?.let {
                     if (it.realJavaName == "main" && mainThreadId == null) {
