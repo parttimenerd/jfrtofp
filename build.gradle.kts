@@ -164,6 +164,16 @@ publishing {
             from(components["java"])
         }
     }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/parttimenerd/jfrtofp")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: properties("gpr.user")
+                password = System.getenv("GITHUB_TOKEN") ?: properties("gpr.token")
+            }
+        }
+    }
 }
 
 nmcp {
