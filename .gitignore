@@ -3,3 +3,17 @@
 
 # Ignore Gradle build output directory
 build
+
+# Local scratch files
+.DS_Store
+.idea/
+.profileconfig.json
+sp.json
+ov.txt
+ow.txt
+test-project/
+
+# Root-level scratch JFR/JSON outputs
+/*.jfr
+/*.json
+/*.json.gz
