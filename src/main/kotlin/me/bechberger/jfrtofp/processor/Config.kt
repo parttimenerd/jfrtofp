@@ -20,7 +20,7 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
         }
 
         override fun getValue(event: RecordedEvent): Long {
-            return event.getValue<RecordedObject?>("heapSpace").getLong("reservedSize")
+            return event.getValue<RecordedObject?>("heapSpace")!!.getLong("reservedSize")
         }
     },
     COMMITTED_HEAP("Committed heap", actualProperty = "committedSize") {
@@ -29,7 +29,7 @@ enum class MemoryProperty(val propName: String, val description: String = propNa
         }
 
         override fun getValue(event: RecordedEvent): Long {
-            return event.getValue<RecordedObject?>("heapSpace").getLong("committedSize")
+            return event.getValue<RecordedObject?>("heapSpace")!!.getLong("committedSize")
         }
     },
     USED_HEAP("Used heap", actualProperty = "heapUsed") {

@@ -2,7 +2,7 @@
 group = "me.bechberger"
 description = "Converting JFR files to Firefox Profiler profiles"
 
-inner class ProjectInfo {
+class ProjectInfo {
     val longName = "JFR to Firefox Profiler converter"
     val website = "https://github.com/parttimenerd/jfrtofp"
     val scm = "git@github.com:parttimenerd/$name.git"
@@ -19,10 +19,10 @@ repositories {
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id("org.jetbrains.kotlin.jvm") version "1.9.22"
-    kotlin("plugin.serialization") version "1.9.22"
+    id("org.jetbrains.kotlin.jvm") version "2.4.20"
+    kotlin("plugin.serialization") version "2.4.20"
 
-    id("com.github.johnrengelman.shadow") version "7.1.2"
+    id("com.gradleup.shadow") version "8.3.11"
 
     // id("io.gitlab.arturbosch.detekt") version "1.23.5"
     pmd
@@ -51,7 +51,7 @@ java {
     withSourcesJar()
 }
 
-apply { plugin("com.github.johnrengelman.shadow") }
+apply { plugin("com.gradleup.shadow") }
 
 /*detekt {
     buildUponDefaultConfig = true // preconfigure defaults
@@ -68,21 +68,22 @@ tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configure
 
 dependencies {
     // Align versions of all Kotlin components
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.9.22"))
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.4.20"))
 
     // Use the Kotlin JDK 8 standard library.
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.20")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     // Use the Kotlin JUnit integration.
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.6.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    implementation("info.picocli:picocli:4.7.5")
-    implementation("org.jline:jline-reader:3.25.1")
-    implementation("org.ow2.asm:asm:9.6")
-    implementation("io.btrace:jafar-parser:0.24.0")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.20")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("info.picocli:picocli:4.7.7")
+    implementation("org.jline:jline-reader:3.26.3")
+    implementation("org.ow2.asm:asm:9.10.1")
+    implementation("io.btrace:jafar-parser:0.27.0")
 }
 
 tasks.test {
@@ -95,7 +96,7 @@ application {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = "11"
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
 }
 
 java {
@@ -108,7 +109,7 @@ tasks.register<Copy>("copyHooks") {
     into(".git/hooks")
 }
 
-tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks"))
+tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks")!!)
 
 // Large-file OOM acceptance test. Run with: ./gradlew largeFileTest -PrunLarge=true
 // Converts several JFR files (14–90 MB) under -Xmx512m; success means no OOM.

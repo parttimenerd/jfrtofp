@@ -125,7 +125,18 @@ class FileCache(
     fun getMaxSize() = maxSize.get()
 
     private fun hashSum(config: Config): String {
-        return config.toString().hashCode().toString()
+        // Config is a data class but contains lambda properties whose toString() includes
+        // memory addresses, making the hash unstable across JVM calls.
+        // Use Java reflection to enumerate stable (non-function) fields only.
+        val stable = StringBuilder()
+        for (field in config.javaClass.declaredFields.sortedBy { it.name }) {
+            field.isAccessible = true
+            val value = field.get(config) ?: continue
+            // Skip function/lambda fields - their toString() includes memory addresses
+            if (value is Function<*> || value.javaClass.name.contains("Lambda")) continue
+            stable.append(field.name).append('=').append(value).append(';')
+        }
+        return stable.toString().hashCode().toString()
     }
 
     companion object {
