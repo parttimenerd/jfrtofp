@@ -31,6 +31,7 @@ jobs:
         run: ./gradlew assemble
       - name: Publish to GitHub Packages
         run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
+        continue-on-error: true
       - uses: softprops/action-gh-release@v2
         with:
           token: "${{ secrets.GITHUB_TOKEN }}"
