@@ -592,7 +592,7 @@ internal class MetaProcessor(
             startTime = basicInformation.startTimeMillis,
             endTime = endTimeMs,
             categories = CategoryE.toCategoryList(),
-            product = meta?.javaArgs ?: "JVM Application",
+            product = meta?.javaArgs?.let { deriveProductName(it) } ?: "JVM Application",
             stackwalk = 0,
             misc = meta?.jvmVersion?.let { "JVM Version $it" },
             oscpu = basicInformation.oscpu,
@@ -610,6 +610,22 @@ internal class MetaProcessor(
             keepProfileThreadOrder = true,
         )
     }
+}
+
+/** Derives a human-readable profile title from the raw javaArguments JFR field. */
+internal fun deriveProductName(javaArgs: String): String {
+    val args = javaArgs.trim().split("\\s+".toRegex())
+    val mainClass = args.firstOrNull() ?: return javaArgs
+
+    // JUnit / TestNG runners launched by IntelliJ: extract the test class name
+    if (mainClass.endsWith("JUnitStarter") || mainClass.endsWith("TestNGStarter")) {
+        // Last bare argument (no leading -) is the test class / method spec
+        val spec = args.lastOrNull { !it.startsWith("-") && it != mainClass }
+        if (spec != null) return spec.substringAfterLast('.')
+    }
+
+    // Plain main class: strip package, show simple name
+    return mainClass.substringAfterLast('.')
 }
 
 abstract class Processor(val config: Config, val jfrFile: Path) {
