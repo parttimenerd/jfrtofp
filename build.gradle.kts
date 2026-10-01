@@ -185,9 +185,12 @@ nmcp {
 }
 
 signing {
-    useInMemoryPgpKeys(
-        providers.gradleProperty("signingInMemoryKey").orNull,
-        providers.gradleProperty("signingInMemoryKeyPassword").orNull,
-    )
-    sign(publishing.publications["mavenJava"])
+    val signingKey = providers.gradleProperty("signingInMemoryKey").orNull
+    if (signingKey != null) {
+        useInMemoryPgpKeys(
+            signingKey,
+            providers.gradleProperty("signingInMemoryKeyPassword").orNull,
+        )
+        sign(publishing.publications["mavenJava"])
+    }
 }
