@@ -31,12 +31,12 @@ jobs:
         run: ./gradlew assemble
       - name: Publish to GitHub Packages
         run: ./gradlew publishMavenJavaPublicationToGitHubPackagesRepository
-      - uses: "marvinpinto/action-automatic-releases@latest"
+      - uses: softprops/action-gh-release@v2
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          tag_name: "latest"
           prerelease: true
-          title: "Development Build"
+          name: "Development Build"
           files: |
             LICENSE
             build/libs/*.jar
