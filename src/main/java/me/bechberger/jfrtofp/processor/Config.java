@@ -83,6 +83,15 @@ public class Config {
     public void setMinRequiredItemsPerThread(int v) { this.minRequiredItemsPerThread = v; }
     public int getMinRequiredItemsPerThread() { return minRequiredItemsPerThread; }
 
+    public void setIncludeInitialSystemProperty(boolean v) { this.includeInitialSystemProperty = v; }
+    public boolean isIncludeInitialSystemProperty() { return includeInitialSystemProperty; }
+
+    public void setIncludeInitialEnvironmentVariables(boolean v) { this.includeInitialEnvironmentVariables = v; }
+    public boolean isIncludeInitialEnvironmentVariables() { return includeInitialEnvironmentVariables; }
+
+    public void setIncludeSystemProcesses(boolean v) { this.includeSystemProcesses = v; }
+    public boolean isIncludeSystemProcesses() { return includeSystemProcesses; }
+
     /** Convert to immutable ConverterConfig for use by the converter. */
     public ConverterConfig toConverterConfig() {
         Set<String> eff = new HashSet<>(ignoredEvents);
