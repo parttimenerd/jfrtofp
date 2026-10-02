@@ -51,6 +51,10 @@ java {
     withSourcesJar()
 }
 
+tasks.withType<Javadoc> {
+    (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
+}
+
 apply { plugin("com.gradleup.shadow") }
 
 /*detekt {
