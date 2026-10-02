@@ -42,6 +42,13 @@ tasks.withType<Javadoc> {
     (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
 }
 
+// Exclude GraalVM webimage stubs from the published JAR — the stubs live in
+// src/main/java only to allow local compilation without GraalVM toolchain.
+// The real org.graalvm.webimage.api is provided by --tool:svm-wasm at WASM build time.
+tasks.withType<Jar> {
+    exclude("org/graalvm/webimage/**")
+}
+
 apply { plugin("com.gradleup.shadow") }
 
 dependencies {
