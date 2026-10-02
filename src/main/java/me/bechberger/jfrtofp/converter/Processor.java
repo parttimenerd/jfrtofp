@@ -503,11 +503,13 @@ public final class Processor {
     }
 
     private static double estimateInterval(Map<Long, DoubleList> startTimesPerThread) {
-        // Mirror Kotlin's estimateIntervalInMillis: weighted average of per-thread estimates
-        // (only threads with >5 samples; then sliding-window filtered, middle 80% average).
+        // The JFR sampling interval is a single value (from the JFR settings).
+        // We estimate it as the minimum per-thread modal-cluster average — the modal bucket
+        // in a 5ms histogram gives the dominant sampling interval per thread, ignoring
+        // both sub-ms noise (e.g. GC events) and large outlier gaps (GC pauses, sleep).
         final double MAX_INTERVAL = 1000.0;
-        double weightedSum = 0.0;
-        double totalWeight = 0.0;
+        final double BUCKET_MS = 5.0;
+        double minEstimate = Double.MAX_VALUE;
 
         for (DoubleList times : startTimesPerThread.values()) {
             int len = times.size();
@@ -519,36 +521,34 @@ public final class Processor {
                 double diff = arr[i] - arr[i - 1];
                 if (diff > 0 && diff < MAX_INTERVAL) diffs.add(diff);
             }
-            // Sliding-window filter: drop diffs > 2x the running average of previous 5
-            DoubleList filtered = new DoubleList();
-            double sum5 = 0.0;
-            int count5 = 0;
+            if (diffs.size() == 0) continue;
+            // Find modal bucket (5ms-wide histogram)
+            int[] bucketCounts = new int[(int)(MAX_INTERVAL / BUCKET_MS) + 1];
+            for (int i = 0; i < diffs.size(); i++) {
+                int b = (int)(diffs.data[i] / BUCKET_MS);
+                if (b < bucketCounts.length) bucketCounts[b]++;
+            }
+            int modalBucket = 0;
+            for (int b = 1; b < bucketCounts.length; b++) {
+                if (bucketCounts[b] > bucketCounts[modalBucket]) modalBucket = b;
+            }
+            double bucketLow = modalBucket * BUCKET_MS;
+            double bucketHigh = bucketLow + BUCKET_MS;
+            // Average diffs in the modal bucket
+            double threadAvg = 0;
+            int cnt = 0;
             for (int i = 0; i < diffs.size(); i++) {
                 double d = diffs.data[i];
-                if (i >= 5 && count5 > 0) {
-                    double avg = sum5 / count5;
-                    if (d > avg * 2) continue;
+                if (d >= bucketLow && d < bucketHigh) {
+                    threadAvg += d;
+                    cnt++;
                 }
-                filtered.add(d);
-                sum5 += d;
-                if (i >= 5) sum5 -= diffs.data[i - 5];
-                count5 = Math.min(count5 + 1, 5);
             }
-            // Middle 80% average
-            if (filtered.size() == 0) continue;
-            double[] fs = filtered.copyToSortedArray();
-            int nf = fs.length;
-            int from = (int) (nf * 0.1);
-            int to = (int) (nf * 0.8);
-            if (to <= from) continue;
-            double threadAvg = 0;
-            for (int i = from; i < to; i++) threadAvg += fs[i];
-            threadAvg /= (to - from);
-            weightedSum += threadAvg * len;
-            totalWeight += len;
+            if (cnt == 0) continue;
+            threadAvg /= cnt;
+            if (threadAvg < minEstimate) minEstimate = threadAvg;
         }
-        if (totalWeight == 0) return 1.0;
-        return weightedSum / totalWeight;
+        return minEstimate == Double.MAX_VALUE ? 1.0 : minEstimate;
     }
 
     /** Primitive-double list to avoid boxing on the hot path. */
