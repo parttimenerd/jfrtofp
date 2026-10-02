@@ -84,11 +84,41 @@ dependencies {
     implementation("org.jline:jline-reader:3.26.3")
     implementation("org.ow2.asm:asm:9.10.1")
     implementation("io.btrace:jafar-parser:0.27.0")
+    implementation("me.bechberger:condensed-data:0.1.3")
+}
+
+// Clone (or update) condensed-data and install it to mavenLocal so the dependency above resolves.
+val condensedDataDir = rootDir.resolve("condensed-data")
+
+val cloneOrUpdateCondensedData by tasks.registering(Exec::class) {
+    group = "build setup"
+    description = "Clone or update parttimenerd/condensed-data"
+    outputs.dir(condensedDataDir)
+    if (condensedDataDir.resolve(".git").exists()) {
+        commandLine("git", "-C", condensedDataDir.absolutePath, "pull", "--ff-only")
+    } else {
+        commandLine("git", "clone", "https://github.com/parttimenerd/condensed-data.git",
+            condensedDataDir.absolutePath)
+    }
+}
+
+val installCondensedData by tasks.registering(Exec::class) {
+    group = "build setup"
+    description = "Build condensed-data and install to mavenLocal"
+    dependsOn(cloneOrUpdateCondensedData)
+    workingDir(condensedDataDir)
+    commandLine("mvn", "-q", "install", "-DskipTests")
+    inputs.dir(condensedDataDir.resolve("src"))
+    inputs.file(condensedDataDir.resolve("pom.xml"))
+    outputs.file(condensedDataDir.resolve("target/condensed-data-0.1.3.jar"))
 }
 
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.named("compileKotlin") { dependsOn(installCondensedData) }
+tasks.named("compileJava")   { dependsOn(installCondensedData) }
 
 application {
     // Define the main class for the application.
@@ -100,8 +130,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 tasks.register<Copy>("copyHooks") {
