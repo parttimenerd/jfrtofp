@@ -1,9 +1,9 @@
 package me.bechberger.jfrtofp
 
+import me.bechberger.jfrtofp.converter.JFRConverter
 import me.bechberger.jfrtofp.other.D3FlamegraphGenerator
 import me.bechberger.jfrtofp.other.SpeedscopeGenerator
 import me.bechberger.jfrtofp.processor.ConfigMixin
-import me.bechberger.jfrtofp.processor.SimpleProcessor
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Mixin
@@ -12,6 +12,7 @@ import picocli.CommandLine.Parameters
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Callable
+import java.util.zip.GZIPOutputStream
 import kotlin.io.path.name
 import kotlin.io.path.outputStream
 import kotlin.system.exitProcess
@@ -71,15 +72,16 @@ class Main : Callable<Int> {
             println("Output file must end with .json or .json.gz")
             return 1
         }
-        val outputFile = output ?: Path.of(file.toString().replace(".jfr", ".json.gz"))
+        val outputFile = output ?: Path.of(file.toString().replace(".jfr", ".json.gz").replace(".cjfr", ".json.gz"))
         val time = System.currentTimeMillis()
-        val processor = SimpleProcessor(config = config.toConfig(), file)
 
-        outputFile.outputStream().use {
+        outputFile.outputStream().use { raw ->
             if (outputFile.name.endsWith(".json")) {
-                processor.process(it)
+                JFRConverter.convertPath(file, raw)
             } else {
-                processor.processZipped(it)
+                GZIPOutputStream(raw).use { gz ->
+                    JFRConverter.convertPath(file, gz)
+                }
             }
         }
         System.err.println("Took ${System.currentTimeMillis() - time} ms")
