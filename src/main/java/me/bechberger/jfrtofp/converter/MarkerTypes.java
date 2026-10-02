@@ -199,7 +199,7 @@ public final class MarkerTypes {
         // Address-name aliases
         for (String n : new String[] {
             "baseAddress", "topAddress", "startAddress", "reservedTopAddress",
-            "heapAddressBits", "objectAlignment", "classLoaderData",
+            "objectAlignment", "classLoaderData",
         }) {
             FIELD_NAME_ALIASES.put(n.toLowerCase(), ADDRESS);
         }
