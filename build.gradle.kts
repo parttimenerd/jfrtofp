@@ -2,38 +2,19 @@
 group = "me.bechberger"
 description = "Converting JFR files to Firefox Profiler profiles"
 
-class ProjectInfo {
-    val longName = "JFR to Firefox Profiler converter"
-    val website = "https://github.com/parttimenerd/jfrtofp"
-    val scm = "git@github.com:parttimenerd/$name.git"
-}
-
 fun properties(key: String) = project.findProperty(key).toString()
 
 repositories {
-    // Use Maven Central for resolving dependencies.
     mavenCentral()
     gradlePluginPortal()
     mavenLocal()
 }
 
 plugins {
-    // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id("org.jetbrains.kotlin.jvm") version "2.4.20"
-    kotlin("plugin.serialization") version "2.4.20"
-
     id("com.gradleup.shadow") version "8.3.11"
-
-    // id("io.gitlab.arturbosch.detekt") version "1.23.5"
     pmd
-
-   // id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
-
     `maven-publish`
-
-    // Apply the application plugin to add support for building a CLI application in Java.
     application
-
     id("java-library")
     id("signing")
     id("com.gradleup.nmcp") version "0.1.5"
@@ -49,6 +30,12 @@ pmd {
 java {
     withJavadocJar()
     withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType<JavaCompile> {
+    options.compilerArgs.add("-parameters")
 }
 
 tasks.withType<Javadoc> {
@@ -57,38 +44,16 @@ tasks.withType<Javadoc> {
 
 apply { plugin("com.gradleup.shadow") }
 
-/*detekt {
-    buildUponDefaultConfig = true // preconfigure defaults
-    config = files("$rootDir/config/detekt/detekt.yml")
-    autoCorrect = true
-}
-
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
-    jvmTarget = "1.8"
-}
-tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
-    jvmTarget = "1.11"
-}*/
-
 dependencies {
-    // Align versions of all Kotlin components
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.4.20"))
-
-    // Use the Kotlin JDK 8 standard library.
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.20")
-
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
-    // Use the Kotlin JUnit integration.
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.20")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("info.picocli:picocli:4.7.7")
-    implementation("org.jline:jline-reader:3.26.3")
     implementation("org.ow2.asm:asm:9.10.1")
     implementation("io.btrace:jafar-parser:0.27.0")
     implementation("me.bechberger:condensed-data:0.1.3")
+
+    // GraalVM Web Image annotations — only needed at compile time for @JS, @JS.Coerce
+    compileOnly("org.graalvm.sdk:nativeimage:25.0.0")
 }
 
 // Clone (or update) condensed-data and install it to mavenLocal so the dependency above resolves.
@@ -121,21 +86,10 @@ tasks.test {
     useJUnitPlatform()
 }
 
-tasks.named("compileKotlin") { dependsOn(installCondensedData) }
-tasks.named("compileJava")   { dependsOn(installCondensedData) }
+tasks.named("compileJava") { dependsOn(installCondensedData) }
 
 application {
-    // Define the main class for the application.
-    mainClass.set("me.bechberger.jfrtofp.MainKt")
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    mainClass.set("me.bechberger.jfrtofp.Main")
 }
 
 tasks.register<Copy>("copyHooks") {
@@ -146,16 +100,15 @@ tasks.register<Copy>("copyHooks") {
 tasks.findByName("build")?.dependsOn(tasks.findByName("copyHooks")!!)
 
 // Large-file OOM acceptance test. Run with: ./gradlew largeFileTest -PrunLarge=true
-// Converts several JFR files (14–90 MB) under -Xmx512m; success means no OOM.
 if (project.hasProperty("runLarge")) {
     tasks.register<JavaExec>("largeFileTest") {
         dependsOn("shadowJar")
         group = "verification"
         description = "Convert large JFR files under -Xmx512m to verify no OOM"
         classpath = files(tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar").get().archiveFile)
-        mainClass.set("me.bechberger.jfrtofp.MainKt")
+        mainClass.set("me.bechberger.jfrtofp.Main")
         val benchDir = "/Users/i560383_1/code/experiments/condensed-data/benchmark"
-        val largeJfr = "$benchDir/renaissance-all_gc_G1.jfr"       // 29 MB, high thread count
+        val largeJfr = "$benchDir/renaissance-all_gc_G1.jfr"
         val outFile = layout.buildDirectory.file("large-test-out.json.gz").get().asFile.absolutePath
         args = listOf(largeJfr, "-o", outFile)
         jvmArgs = listOf("-Xmx512m")
