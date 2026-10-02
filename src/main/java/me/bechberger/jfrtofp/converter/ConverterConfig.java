@@ -34,6 +34,45 @@ public final class ConverterConfig {
         "jdk.ModuleRequire"
     );
 
+    /** High-volume GC/metaspace detail events filtered by default; opt in with includeNoisyEvents=true. */
+    public static final Set<String> DEFAULT_NOISY_EVENTS = Set.of(
+        "jdk.ThreadDump",
+        "jdk.MetaspaceChunkFreeListSummary",
+        "jdk.MetaspaceSummary",
+        "jdk.MetaspaceGCThreshold",
+        "jdk.GCPhasePauseLevel1",
+        "jdk.GCPhasePauseLevel2",
+        "jdk.GCPhasePauseLevel3",
+        "jdk.GCPhasePauseLevel4",
+        "jdk.GCPhaseConcurrent",
+        "jdk.GCPhaseConcurrentLevel1",
+        "jdk.GCPhaseParallel",
+        "jdk.G1AdaptiveIHOP",
+        "jdk.G1BasicIHOP",
+        "jdk.G1MMU",
+        "jdk.G1HeapSummary",
+        // jdk.GCHeapSummary is intentionally excluded: sole source for memory counter tracks
+        "jdk.G1EvacuationOldStatistics",
+        "jdk.G1EvacuationYoungStatistics",
+        "jdk.GCReferenceStatistics",
+        "jdk.TenuringDistribution",
+        "jdk.EvacuationInformation",
+        "jdk.PromoteObjectInNewPLAB",
+        "jdk.PromoteObjectOutsidePLAB",
+        "jdk.GCCPUTime",
+        "jdk.ObjectAllocationInNewTLAB",
+        "jdk.G1HeapRegionTypeChange",
+        "jdk.G1HeapRegionInformation",
+        "jdk.ObjectCountAfterGC",
+        "jdk.ZStatisticsCounter",
+        "jdk.ZStatisticsSampler",
+        "jdk.ZThreadPhase",
+        "jdk.ZUnmap",
+        "jdk.ZRelocationSet",
+        "jdk.ZRelocationSetGroup",
+        "jdk.ZAllocationStall"
+    );
+
     public final String[] nonProjectPackagePrefixes;
     public final int maxExecutionSamplesPerThread;
     public final int maxMiscSamplesPerThread;
@@ -49,6 +88,7 @@ public final class ConverterConfig {
     public final boolean useNonProjectCategory;
     public final boolean omitEventThreadProperty;
     public final Set<String> ignoredEvents;
+    public final boolean includeNoisyEvents;
 
     private ConverterConfig(
             String[] nonProjectPackagePrefixes,
@@ -65,7 +105,8 @@ public final class ConverterConfig {
             boolean selectProcessTrackInitially,
             boolean useNonProjectCategory,
             boolean omitEventThreadProperty,
-            Set<String> ignoredEvents) {
+            Set<String> ignoredEvents,
+            boolean includeNoisyEvents) {
         this.nonProjectPackagePrefixes = nonProjectPackagePrefixes;
         this.maxExecutionSamplesPerThread = maxExecutionSamplesPerThread;
         this.maxMiscSamplesPerThread = maxMiscSamplesPerThread;
@@ -81,6 +122,7 @@ public final class ConverterConfig {
         this.useNonProjectCategory = useNonProjectCategory;
         this.omitEventThreadProperty = omitEventThreadProperty;
         this.ignoredEvents = ignoredEvents;
+        this.includeNoisyEvents = includeNoisyEvents;
     }
 
     public static ConverterConfig defaults() {
@@ -99,7 +141,8 @@ public final class ConverterConfig {
             true,
             true,
             true,
-            DEFAULT_IGNORED_EVENTS
+            DEFAULT_IGNORED_EVENTS,
+            false
         );
     }
 
@@ -109,7 +152,7 @@ public final class ConverterConfig {
             url, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
             minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
             selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty,
-            ignoredEvents);
+            ignoredEvents, includeNoisyEvents);
     }
 
     /** Equivalent of the TS regex `jdk\.ExecutionSample|jdk\.NativeMethodSample|jdk\.CPUTimeSample` */

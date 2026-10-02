@@ -8,6 +8,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Port of processor.ts. Top-level orchestration of JFR event stream → Profile JSON.
@@ -31,11 +33,19 @@ public final class Processor {
         public final Integer cpuHwThreads;  // nullable
         public final String osVersion;      // nullable
         public final long pid;
+        public final String sourcePath;     // nullable — path to the JFR/CJFR file
 
         public JFRMetadata(String jvmVersion, String jvmArgs, String javaArgs,
                            double startMs, double endMs,
                            String cpuModel, Integer cpuCores, Integer cpuHwThreads,
                            String osVersion, long pid) {
+            this(jvmVersion, jvmArgs, javaArgs, startMs, endMs, cpuModel, cpuCores, cpuHwThreads, osVersion, pid, null);
+        }
+
+        public JFRMetadata(String jvmVersion, String jvmArgs, String javaArgs,
+                           double startMs, double endMs,
+                           String cpuModel, Integer cpuCores, Integer cpuHwThreads,
+                           String osVersion, long pid, String sourcePath) {
             this.jvmVersion = jvmVersion;
             this.jvmArgs = jvmArgs;
             this.javaArgs = javaArgs;
@@ -46,6 +56,7 @@ public final class Processor {
             this.cpuHwThreads = cpuHwThreads;
             this.osVersion = osVersion;
             this.pid = pid;
+            this.sourcePath = sourcePath;
         }
     }
 
@@ -80,7 +91,7 @@ public final class Processor {
         public String[] frameDescriptors;
         public int[]    frameLineNumbers;
         public boolean[] frameIsJava;
-        public JFRThread thread;             // nullable
+        public JFRThread thread;             // nullable — sampledThread if present, else eventThread
         public Map<String, Object> fields;   // never null
 
         public void reset() {
@@ -164,6 +175,10 @@ public final class Processor {
                 info.isSystemThread = isSystemThread(t.javaName, t.osName);
                 info.isGCThread = isGCThread(t.javaName, t.osName);
                 threadInfoMap.put(t.id, info);
+                if (!info.isGCThread || config.includeGCThreads) {
+                    threadProcessors.putIfAbsent(t.id,
+                        new ThreadProcessor(false, t.id, tables, markerSchemas, basicInfo, config));
+                }
             }
             if (isExec) {
                 info.executionSampleCount++;
@@ -179,6 +194,7 @@ public final class Processor {
         }
 
         if (config.ignoredEvents.contains(event.type)) return;
+        if (!config.includeNoisyEvents && ConverterConfig.DEFAULT_NOISY_EVENTS.contains(event.type)) return;
         MarkerSchemas.JFREventTypeInfo info = eventTypeInfoMap.get(event.type);
         if (info == null) return;
 
@@ -277,16 +293,18 @@ public final class Processor {
         else if (osVersion.contains("Mac OS X")) platform = "Macintosh";
         else if (osVersion.contains("Windows")) platform = "Windows";
 
+        String oscpu = deriveOsCpu(osVersion, meta.cpuModel);
+
         w.beginObject();
         w.keyDouble("interval", basicInfo.intervalMs);
         w.keyDouble("startTime", basicInfo.startMs);
         w.keyDouble("endTime", basicInfo.endMs);
         w.key("categories"); Categories.writeCategoryList(w);
-        w.keyString("product", meta.javaArgs != null ? meta.javaArgs : "JVM Application");
+        w.keyString("product", meta.javaArgs != null ? deriveProductName(meta.javaArgs) : "JVM Application");
         w.keyInt("stackwalk", 0);
         if (meta.jvmVersion != null) w.keyString("misc", "JVM Version " + meta.jvmVersion);
-        if (!osVersion.isEmpty()) w.keyString("oscpu", osVersion);
-        if (meta.cpuModel != null) w.keyString("cpuName", meta.cpuModel);
+        if (oscpu != null) w.keyString("oscpu", oscpu);
+        if (meta.cpuModel != null) w.keyString("CPUName", meta.cpuModel);
         w.keyString("platform", platform);
         w.key("markerSchema"); markerSchemas.writeMarkerSchemaList(w);
         if (meta.jvmArgs != null) {
@@ -302,7 +320,7 @@ public final class Processor {
         w.keyString("eventDelay", "ms");
         w.keyString("threadCPUDelta", "µs");
         w.endObject();
-        w.keyString("importedFrom", "JFR profile");
+        w.keyString("importedFrom", meta.sourcePath != null ? meta.sourcePath : "JFR profile");
         w.key("extra").beginArray().endArray();
         w.key("initialVisibleThreads").beginArray();
         for (int i = 0; i < initialVisibleLen; i++) w.value(i);
@@ -411,7 +429,7 @@ public final class Processor {
     }
 
     private static boolean isSystemThread(String javaName, String osName) {
-        if (javaName == null || javaName.isEmpty()) return false;
+        if (javaName == null || javaName.isEmpty()) return true;  // no java name = system thread
         switch (javaName) {
             case "JFR Shutdown Hook":
             case "Permissionless thread":
@@ -442,8 +460,41 @@ public final class Processor {
         if (javaName.startsWith("C2 CompilerThread")) return true;
         if (javaName.startsWith("Graal Compiler Thread")) return true;
         if (javaName.startsWith("JVMCI CompilerThread")) return true;
+        if (javaName.startsWith("AdaptiveOptimization ")) return true;
         if (javaName.contains("CompilerThread")) return true;
         return false;
+    }
+
+    private static final Pattern OS_MATCH = Pattern.compile("[A-Za-z0-9]+ [0-9.]+");
+
+    /**
+     * Extracts "OsName Version CpuArch" from the raw JFR osVersion string,
+     * mirroring the Kotlin BasicInformation.oscpu property.
+     */
+    private static String deriveOsCpu(String osVersion, String cpuModel) {
+        if (osVersion == null || osVersion.isEmpty()) return null;
+        Matcher m = OS_MATCH.matcher(osVersion);
+        String osMatch = m.find() ? m.group() : null;
+        String cpu = cpuModel != null && !cpuModel.isEmpty()
+            ? cpuModel.split(" ")[0] : null;
+        if (osMatch == null && cpu == null) return null;
+        if (osMatch == null) return cpu;
+        if (cpu == null) return osMatch;
+        return osMatch + " " + cpu;
+    }
+
+    static String deriveProductName(String javaArgs) {
+        if (javaArgs == null || javaArgs.isBlank()) return "JVM Application";
+        String[] parts = javaArgs.trim().split("\\s+");
+        String mainClass = parts[0];
+        if (mainClass.endsWith("JUnitStarter") || mainClass.endsWith("TestNGStarter")) {
+            for (int i = parts.length - 1; i >= 1; i--) {
+                if (!parts[i].startsWith("-") && !parts[i].equals(mainClass)) {
+                    return parts[i].contains(".") ? parts[i].substring(parts[i].lastIndexOf('.') + 1) : parts[i];
+                }
+            }
+        }
+        return mainClass.contains(".") ? mainClass.substring(mainClass.lastIndexOf('.') + 1) : mainClass;
     }
 
     private static boolean isGCThread(String javaName, String osName) {
@@ -452,26 +503,52 @@ public final class Processor {
     }
 
     private static double estimateInterval(Map<Long, DoubleList> startTimesPerThread) {
+        // Mirror Kotlin's estimateIntervalInMillis: weighted average of per-thread estimates
+        // (only threads with >5 samples; then sliding-window filtered, middle 80% average).
         final double MAX_INTERVAL = 1000.0;
-        DoubleList all = new DoubleList();
+        double weightedSum = 0.0;
+        double totalWeight = 0.0;
+
         for (DoubleList times : startTimesPerThread.values()) {
             int len = times.size();
-            if (len < 3) continue;
+            if (len <= 5) continue;
             double[] arr = times.copyToSortedArray();
+            // Compute diffs
+            DoubleList diffs = new DoubleList();
             for (int i = 1; i < len; i++) {
                 double diff = arr[i] - arr[i - 1];
-                if (diff > 0 && diff < MAX_INTERVAL) all.add(diff);
+                if (diff > 0 && diff < MAX_INTERVAL) diffs.add(diff);
             }
+            // Sliding-window filter: drop diffs > 2x the running average of previous 5
+            DoubleList filtered = new DoubleList();
+            double sum5 = 0.0;
+            int count5 = 0;
+            for (int i = 0; i < diffs.size(); i++) {
+                double d = diffs.data[i];
+                if (i >= 5 && count5 > 0) {
+                    double avg = sum5 / count5;
+                    if (d > avg * 2) continue;
+                }
+                filtered.add(d);
+                sum5 += d;
+                if (i >= 5) sum5 -= diffs.data[i - 5];
+                count5 = Math.min(count5 + 1, 5);
+            }
+            // Middle 80% average
+            if (filtered.size() == 0) continue;
+            double[] fs = filtered.copyToSortedArray();
+            int nf = fs.length;
+            int from = (int) (nf * 0.1);
+            int to = (int) (nf * 0.8);
+            if (to <= from) continue;
+            double threadAvg = 0;
+            for (int i = from; i < to; i++) threadAvg += fs[i];
+            threadAvg /= (to - from);
+            weightedSum += threadAvg * len;
+            totalWeight += len;
         }
-        if (all.size() == 0) return 1.0;
-        double[] arr = all.copyToSortedArray();
-        int n = arr.length;
-        int from = (int) Math.floor(n * 0.1);
-        int to = (int) Math.floor(n * 0.8);
-        if (to <= from) return 1.0;
-        double sum = 0;
-        for (int i = from; i < to; i++) sum += arr[i];
-        return sum / (to - from);
+        if (totalWeight == 0) return 1.0;
+        return weightedSum / totalWeight;
     }
 
     /** Primitive-double list to avoid boxing on the hot path. */
@@ -597,8 +674,8 @@ public final class Processor {
 
             switch (event.type) {
                 case "jdk.ThreadCPULoad": {
-                    double user = MarkerTypes.asDouble(event.fields.get("user"));
-                    double system = MarkerTypes.asDouble(event.fields.get("system"));
+                    double user = MarkerTypes.asDouble(event.fields.get("jvmUser"));
+                    double system = MarkerTypes.asDouble(event.fields.get("jvmSystem"));
                     long micros = Math.round(event.startMs * 1000.0);
                     cpuLoads.put(micros, (user + system) * basicInfo.hwThreads);
                     break;

@@ -1,6 +1,5 @@
 package me.bechberger.jfrtofp.converter;
 
-import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -17,49 +16,35 @@ import me.bechberger.cjfr.Options;
 import me.bechberger.condensed.ReadList;
 import me.bechberger.condensed.ReadStruct;
 
-/** Converts a .cjfr file to Firefox Profiler JSON. */
+/** Converts a .cjfr file to Firefox Profiler JSON using a two-pass approach. */
 public final class CJFRConvert {
 
     public static void convert(Path path, ConverterConfig config, OutputStream out)
-            throws IOException {
-        String[] jvmVersion = {null};
-        String[] jvmArgs = {null};
-        String[] javaArgs = {null};
-        long[] startNanos = {0L};
-        long[] endNanos = {0L};
-        String[] cpuModel = {null};
-        int[] cpuCores = {0};
-        int[] cpuHwThreads = {0};
-        String[] osVersion = {null};
-        long[] pid = {-1L};
-        boolean[] firstEvent = {true};
+            throws Exception {
 
-        Processor.ParsedEvent scratch = new Processor.ParsedEvent();
-        HashMap<String, Object> scratchFields = new HashMap<>();
+        // ── Pass 1: collect metadata ────────────────────────────────────────
+        String[] jvmVersion   = {null};
+        String[] jvmArgs      = {null};
+        String[] javaArgs     = {null};
+        long[]   startNanos   = {0L};
+        long[]   endNanos     = {0L};
+        String[] cpuModel     = {null};
+        int[]    cpuCores     = {0};
+        int[]    cpuHwThreads = {0};
+        String[] osVersion    = {null};
+        long[]   pid          = {-1L};
+        boolean[] firstEvent  = {true};
+
         LinkedHashMap<String, CJFREventType> seenTypes = new LinkedHashMap<>();
-        Processor[] procRef = {null};
-        ArrayList<PrebufferedEvent> prebuffer = new ArrayList<>();
 
         try (CJFRFile file = CJFRFile.open(path, Options.defaults().withReconstitution(false))) {
             CJFREvent event;
             while ((event = file.readEvent()) != null) {
                 String typeName = event.getEventType().getName();
-
-                if (!seenTypes.containsKey(typeName)) {
-                    seenTypes.put(typeName, event.getEventType());
-                    if (procRef[0] != null) {
-                        procRef[0].registerEventTypeInfo(buildEventTypeInfo(event.getEventType()));
-                    }
-                }
+                seenTypes.putIfAbsent(typeName, event.getEventType());
 
                 Instant startInst = event.getStartTime();
-                Long rawStartNs = null;
-                if (startInst != null) {
-                    long sec = startInst.getEpochSecond();
-                    if (sec > Long.MIN_VALUE / 1_000_000_000L && sec < Long.MAX_VALUE / 1_000_000_000L) {
-                        rawStartNs = sec * 1_000_000_000L + startInst.getNano();
-                    }
-                }
+                Long rawStartNs = toRawNs(startInst);
 
                 if (rawStartNs != null) {
                     if (firstEvent[0]) {
@@ -72,79 +57,80 @@ public final class CJFRConvert {
                     if (endNs > endNanos[0]) endNanos[0] = endNs;
                 }
 
-                ReadStruct raw = event.getRawStruct();
-                raw.ensureComplete();
-
                 switch (typeName) {
                     case "jdk.JVMInformation" -> {
+                        ReadStruct raw = event.getRawStruct();
+                        raw.ensureComplete();
                         jvmVersion[0] = getStr(raw, "jvmVersion");
-                        jvmArgs[0] = getStr(raw, "jvmArguments");
-                        javaArgs[0] = getStr(raw, "javaArguments");
+                        jvmArgs[0]    = getStr(raw, "jvmArguments");
+                        javaArgs[0]   = getStr(raw, "javaArguments");
                         Object p2 = raw.get("pid");
                         if (p2 instanceof Long l) pid[0] = l;
                         else if (p2 instanceof Integer i) pid[0] = i;
                         Object jvmStart = raw.get("jvmStartTime");
                         if (jvmStart instanceof Instant inst) {
-                            long sec = inst.getEpochSecond();
-                            if (sec > Long.MIN_VALUE / 1_000_000_000L && sec < Long.MAX_VALUE / 1_000_000_000L) {
-                                startNanos[0] = sec * 1_000_000_000L + inst.getNano();
-                            }
+                            Long ns = toRawNs(inst);
+                            if (ns != null) startNanos[0] = ns;
                         }
                     }
                     case "jdk.CPUInformation" -> {
-                        cpuModel[0] = getStr(raw, "cpu");
-                        cpuCores[0] = getIntVal(raw, "cores");
+                        ReadStruct raw = event.getRawStruct();
+                        raw.ensureComplete();
+                        cpuModel[0]     = getStr(raw, "cpu");
+                        cpuCores[0]     = getIntVal(raw, "cores");
                         cpuHwThreads[0] = getIntVal(raw, "hwThreads");
                     }
                     case "jdk.OSInformation" -> {
+                        ReadStruct raw = event.getRawStruct();
+                        raw.ensureComplete();
                         osVersion[0] = getStr(raw, "osVersion");
                     }
                 }
-
-                if (procRef[0] == null) {
-                    prebuffer.add(snapshotEvent(typeName, raw, rawStartNs));
-                    if (prebuffer.size() >= 64
-                            || "jdk.JVMInformation".equals(typeName)
-                            || "jdk.CPUInformation".equals(typeName)
-                            || "jdk.OSInformation".equals(typeName)) {
-                        if (startNanos[0] != 0L) {
-                            ProcessorDrain.buildProcessorAndDrain(procRef, prebuffer, scratch,
-                                    () -> seenTypes.forEach((n, t) ->
-                                            procRef[0].registerEventTypeInfo(buildEventTypeInfo(t))),
-                                    jvmVersion, jvmArgs, javaArgs,
-                                    startNanos, endNanos,
-                                    cpuModel, cpuCores, cpuHwThreads,
-                                    osVersion, pid);
-                            scratch.frameClassNames = null;
-                            scratch.frameMethodNames = null;
-                            scratch.frameDescriptors = null;
-                            scratch.frameLineNumbers = null;
-                            scratch.frameIsJava = null;
-                            scratch.stackDepth = 0;
-                        }
-                    }
-                    continue;
-                }
-
-                fillScratch(scratch, scratchFields, typeName, raw, rawStartNs);
-                procRef[0].process(scratch);
             }
         }
 
-        if (procRef[0] == null) {
-            ProcessorDrain.buildProcessorAndDrain(procRef, prebuffer, scratch,
-                    () -> seenTypes.forEach((n, t) ->
-                            procRef[0].registerEventTypeInfo(buildEventTypeInfo(t))),
-                    jvmVersion, jvmArgs, javaArgs,
-                    startNanos, endNanos,
-                    cpuModel, cpuCores, cpuHwThreads,
-                    osVersion, pid);
+        // ── Build Processor ──────────────────────────────────────────────────
+        Processor.JFRMetadata meta = new Processor.JFRMetadata(
+                jvmVersion[0], jvmArgs[0], javaArgs[0],
+                startNanos[0] / 1_000_000.0,
+                endNanos[0]   / 1_000_000.0,
+                cpuModel[0],
+                cpuCores[0]     != 0 ? cpuCores[0]     : null,
+                cpuHwThreads[0] != 0 ? cpuHwThreads[0] : null,
+                osVersion[0], pid[0], path.toString());
+        Processor proc = new Processor(config, meta);
+
+        for (Map.Entry<String, CJFREventType> e : seenTypes.entrySet()) {
+            proc.registerEventTypeInfo(buildEventTypeInfo(e.getValue()));
+        }
+
+        // ── Pass 2: process all events ───────────────────────────────────────
+        Processor.ParsedEvent scratch = new Processor.ParsedEvent();
+        HashMap<String, Object> scratchFields = new HashMap<>();
+
+        try (CJFRFile file = CJFRFile.open(path, Options.defaults().withReconstitution(false))) {
+            CJFREvent event;
+            while ((event = file.readEvent()) != null) {
+                String typeName = event.getEventType().getName();
+
+                if (!seenTypes.containsKey(typeName)) {
+                    seenTypes.put(typeName, event.getEventType());
+                    proc.registerEventTypeInfo(buildEventTypeInfo(event.getEventType()));
+                }
+
+                Instant startInst = event.getStartTime();
+                Long rawStartNs = toRawNs(startInst);
+
+                ReadStruct raw = event.getRawStruct();
+                raw.ensureComplete();
+                fillScratch(scratch, scratchFields, typeName, raw, rawStartNs);
+                proc.process(scratch);
+            }
         }
 
         JsonWriter w = new JsonWriter(1 << 20);
-        procRef[0].writeProfile(w);
-        String json = w.toJson();
-        out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        proc.writeProfile(w);
+        out.write(w.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     // ── Event type info ───────────────────────────────────────────────────────
@@ -170,38 +156,6 @@ public final class CJFRConvert {
                 hasStackTrace);
     }
 
-    // ── Prebuffer snapshot ────────────────────────────────────────────────────
-
-    private static PrebufferedEvent snapshotEvent(
-            String typeName, ReadStruct raw, Long rawStartNs) {
-        PrebufferedEvent pe = new PrebufferedEvent();
-        pe.typeName = typeName;
-        double sm = rawStartNs != null ? rawStartNs / 1_000_000.0 : 0.0;
-        Duration dur = getDuration(raw);
-        double dm = dur != null ? safeToNanos(dur) / 1_000_000.0 : 0.0;
-        pe.startMs = sm;
-        pe.endMs = sm + dm;
-        pe.fields = extractFields(raw);
-        pe.thread = extractThread(raw);
-        ReadStruct stMap = getStruct(raw, "stackTrace");
-        if (stMap != null) {
-            List<?> frames = getFrameList(stMap);
-            if (frames != null && !frames.isEmpty()) {
-                int n = frames.size();
-                pe.frameClassNames = new String[n];
-                pe.frameMethodNames = new String[n];
-                pe.frameDescriptors = new String[n];
-                pe.frameLineNumbers = new int[n];
-                pe.frameIsJava = new boolean[n];
-                fillFrames(frames, n,
-                        pe.frameClassNames, pe.frameMethodNames, pe.frameDescriptors,
-                        pe.frameLineNumbers, pe.frameIsJava);
-                pe.stackDepth = n;
-            }
-        }
-        return pe;
-    }
-
     // ── Scratch fill ──────────────────────────────────────────────────────────
 
     private static void fillScratch(
@@ -217,7 +171,6 @@ public final class CJFRConvert {
         scratchFields.clear();
         for (Map.Entry<String, Object> e : raw.entrySet()) {
             String key = e.getKey();
-            // Note: include sampledThread in fields (needed by Processor for execution samples)
             if ("startTime".equals(key) || "duration".equals(key)
                     || "eventThread".equals(key) || "stackTrace".equals(key)) continue;
             Object v = e.getValue();
@@ -233,7 +186,6 @@ public final class CJFRConvert {
             }
         }
         scratch.fields = scratchFields;
-        // Fix: fall back to sampledThread for jdk.ExecutionSample events
         scratch.thread = extractThread(raw);
 
         ReadStruct stMap = getStruct(raw, "stackTrace");
@@ -252,22 +204,6 @@ public final class CJFRConvert {
                 scratch.frameClassNames, scratch.frameMethodNames, scratch.frameDescriptors,
                 scratch.frameLineNumbers, scratch.frameIsJava);
         scratch.stackDepth = n;
-    }
-
-    private static HashMap<String, Object> extractFields(ReadStruct raw) {
-        HashMap<String, Object> out = new HashMap<>(raw.size());
-        for (Map.Entry<String, Object> e : raw.entrySet()) {
-            String key = e.getKey();
-            if ("startTime".equals(key) || "duration".equals(key)
-                    || "eventThread".equals(key) || "stackTrace".equals(key)) continue;
-            Object v = e.getValue();
-            if (v == null) continue;
-            if (v instanceof ReadStruct nested) flatten(out, key, nested);
-            else if (v instanceof Instant inst) out.put(key, safeToEpochMilli(inst));
-            else if (v instanceof Duration d) out.put(key, safeToNanos(d));
-            else out.put(key, v);
-        }
-        return out;
     }
 
     /**
@@ -391,6 +327,15 @@ public final class CJFRConvert {
         if (v instanceof Duration d) return d;
         if (v instanceof Long nanos) return Duration.ofNanos(nanos);
         return null;
+    }
+
+    private static Long toRawNs(Instant inst) {
+        if (inst == null) return null;
+        long sec = inst.getEpochSecond();
+        if (sec <= Long.MIN_VALUE / 1_000_000_000L || sec >= Long.MAX_VALUE / 1_000_000_000L) {
+            return null;
+        }
+        return sec * 1_000_000_000L + inst.getNano();
     }
 
     private static long safeToNanos(Duration d) {

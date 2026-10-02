@@ -9,7 +9,6 @@ import io.jafar.parser.internal_api.metadata.AbstractMetadataElement;
 import io.jafar.parser.internal_api.metadata.MetadataAnnotation;
 import io.jafar.parser.internal_api.metadata.MetadataClass;
 import io.jafar.parser.internal_api.metadata.MetadataField;
-import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,40 +17,37 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Converts a .jfr file to Firefox Profiler JSON. */
+/** Converts a .jfr file to Firefox Profiler JSON using a two-pass approach. */
 public final class JFRConvert {
 
     public static void convert(Path path, ConverterConfig config, OutputStream out)
             throws Exception {
-        String[] jvmVersion = {null};
-        String[] jvmArgs = {null};
-        String[] javaArgs = {null};
-        long[] startNanos = {0L};
-        long[] endNanos = {0L};
-        String[] cpuModel = {null};
-        int[] cpuCores = {0};
-        int[] cpuHwThreads = {0};
-        String[] osVersion = {null};
-        long[] pid = {-1L};
-        boolean[] firstEvent = {true};
 
-        Processor.ParsedEvent scratch = new Processor.ParsedEvent();
-        HashMap<String, Object> scratchFields = new HashMap<>();
+        // ── Pass 1: collect metadata ────────────────────────────────────────
+        // Read jvmVersion, jvmArgs, javaArgs, cpuModel, cpuCores, cpuHwThreads,
+        // osVersion, pid, startNanos, endNanos, and event type metadata.
+        // This pass is cheap: we collect only a handful of fields.
+
+        String[] jvmVersion   = {null};
+        String[] jvmArgs      = {null};
+        String[] javaArgs     = {null};
+        long[]   startNanos   = {0L};
+        long[]   endNanos     = {0L};
+        double[] jvmStartMs   = {Double.NaN};  // milliseconds from jvmStartTime, precise
+        String[] cpuModel     = {null};
+        int[]    cpuCores     = {0};
+        int[]    cpuHwThreads = {0};
+        String[] osVersion    = {null};
+        long[]   pid          = {-1L};
+        boolean[] firstEvent  = {true};
+
         LinkedHashMap<String, MetadataClass> seenTypes = new LinkedHashMap<>();
-        Processor[] procRef = {null};
-        ArrayList<PrebufferedEvent> prebuffer = new ArrayList<>();
 
         try (UntypedJafarParser p = UntypedJafarParser.open(
                 path, ParsingContext.create(), UntypedStrategy.FULL_ITERATION)) {
-            p.handle((type, value, ctl) -> {
+            p.handle((type, value, ctl) -> { synchronized (seenTypes) {
                 String typeName = type.getName();
-
-                if (!seenTypes.containsKey(typeName)) {
-                    seenTypes.put(typeName, type);
-                    if (procRef[0] != null) {
-                        procRef[0].registerEventTypeInfo(buildEventTypeInfo(typeName, type));
-                    }
-                }
+                seenTypes.putIfAbsent(typeName, type);
 
                 Long rawStart = getLong(value, "startTime");
                 if (rawStart != null) {
@@ -72,93 +68,66 @@ public final class JFRConvert {
                         Object p2 = value.get("pid");
                         if (p2 instanceof Long l) pid[0] = l;
                         else if (p2 instanceof Integer i) pid[0] = i;
-                        Long jvmStart = getLong(value, "jvmStartTime");
-                        if (jvmStart != null) startNanos[0] = jvmStart;
+                        Long jvmStart = getTimestampMs(value, "jvmStartTime");
+                        if (jvmStart != null) jvmStartMs[0] = (double) jvmStart;
                     }
                     case "jdk.CPUInformation" -> {
-                        cpuModel[0]    = getStr(value, "cpu");
-                        cpuCores[0]    = getIntVal(value, "cores");
+                        cpuModel[0]     = getStr(value, "cpu");
+                        cpuCores[0]     = getIntVal(value, "cores");
                         cpuHwThreads[0] = getIntVal(value, "hwThreads");
                     }
                     case "jdk.OSInformation" -> {
                         osVersion[0] = getStr(value, "osVersion");
                     }
                 }
-
-                if (procRef[0] == null) {
-                    prebuffer.add(snapshotEvent(typeName, value, rawStart));
-                    if (prebuffer.size() >= 64
-                            || "jdk.JVMInformation".equals(typeName)
-                            || "jdk.CPUInformation".equals(typeName)
-                            || "jdk.OSInformation".equals(typeName)) {
-                        if (startNanos[0] != 0L) {
-                            ProcessorDrain.buildProcessorAndDrain(procRef, prebuffer, scratch,
-                                () -> seenTypes.forEach((n, t) -> procRef[0].registerEventTypeInfo(buildEventTypeInfo(n, t))),
-                                jvmVersion, jvmArgs, javaArgs,
-                                startNanos, endNanos,
-                                cpuModel, cpuCores, cpuHwThreads,
-                                osVersion, pid);
-                            scratch.frameClassNames = null;
-                            scratch.frameMethodNames = null;
-                            scratch.frameDescriptors = null;
-                            scratch.frameLineNumbers = null;
-                            scratch.frameIsJava = null;
-                            scratch.stackDepth = 0;
-                        }
-                    }
-                    return;
-                }
-
-                fillScratch(scratch, scratchFields, typeName, value, rawStart);
-                procRef[0].process(scratch);
-            });
+            }});
             p.run();
         }
 
-        if (procRef[0] == null) {
-            ProcessorDrain.buildProcessorAndDrain(procRef, prebuffer, scratch,
-                () -> seenTypes.forEach((n, t) -> procRef[0].registerEventTypeInfo(buildEventTypeInfo(n, t))),
-                jvmVersion, jvmArgs, javaArgs,
-                startNanos, endNanos,
-                cpuModel, cpuCores, cpuHwThreads,
-                osVersion, pid);
+        // ── Build Processor from metadata ────────────────────────────────────
+        // Use jvmStartMs if available (precise ms); fall back to first-event nanos/1e6.
+        double startMs = !Double.isNaN(jvmStartMs[0]) ? jvmStartMs[0] : startNanos[0] / 1_000_000.0;
+        Processor.JFRMetadata meta = new Processor.JFRMetadata(
+                jvmVersion[0], jvmArgs[0], javaArgs[0],
+                startMs,
+                endNanos[0]   / 1_000_000.0,
+                cpuModel[0],
+                cpuCores[0]     != 0 ? cpuCores[0]     : null,
+                cpuHwThreads[0] != 0 ? cpuHwThreads[0] : null,
+                osVersion[0], pid[0], path.toString());
+        Processor proc = new Processor(config, meta);
+
+        // Register all event types discovered in pass 1
+        for (Map.Entry<String, MetadataClass> e : seenTypes.entrySet()) {
+            proc.registerEventTypeInfo(buildEventTypeInfo(e.getKey(), e.getValue()));
+        }
+
+        // ── Pass 2: process all events ───────────────────────────────────────
+        Processor.ParsedEvent scratch  = new Processor.ParsedEvent();
+        HashMap<String, Object> scratchFields = new HashMap<>();
+
+        try (UntypedJafarParser p = UntypedJafarParser.open(
+                path, ParsingContext.create(), UntypedStrategy.FULL_ITERATION)) {
+            p.handle((type, value, ctl) -> { synchronized (proc) {
+                String typeName = type.getName();
+
+                // Register any type seen for the first time in pass 2
+                // (unlikely but possible if chunk ordering changes)
+                if (!seenTypes.containsKey(typeName)) {
+                    seenTypes.put(typeName, type);
+                    proc.registerEventTypeInfo(buildEventTypeInfo(typeName, type));
+                }
+
+                Long rawStart = getLong(value, "startTime");
+                fillScratch(scratch, scratchFields, typeName, value, rawStart);
+                proc.process(scratch);
+            }});
+            p.run();
         }
 
         JsonWriter w = new JsonWriter(1 << 20);
-        procRef[0].writeProfile(w);
-        String json = w.toJson();
-        out.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-    }
-
-    private static PrebufferedEvent snapshotEvent(
-            String typeName, Map<String, Object> value, Long rawStartNs) {
-        PrebufferedEvent pe = new PrebufferedEvent();
-        pe.typeName = typeName;
-        double sm = rawStartNs != null ? rawStartNs / 1_000_000.0 : 0.0;
-        Long rawDuration = getLong(value, "duration");
-        double dm = rawDuration != null ? rawDuration / 1_000_000.0 : 0.0;
-        pe.startMs = sm;
-        pe.endMs = sm + dm;
-        pe.fields = extractFields(value);
-        pe.thread = extractThread(value);
-        Object stVal = value.get("stackTrace");
-        Map<String, Object> stMap = asMap(stVal);
-        if (stMap != null) {
-            Object[] rawFrames = asObjectArray(stMap.get("frames"));
-            if (rawFrames != null && rawFrames.length > 0) {
-                int n = rawFrames.length;
-                pe.frameClassNames = new String[n];
-                pe.frameMethodNames = new String[n];
-                pe.frameDescriptors = new String[n];
-                pe.frameLineNumbers = new int[n];
-                pe.frameIsJava = new boolean[n];
-                fillFrames(rawFrames, n,
-                    pe.frameClassNames, pe.frameMethodNames, pe.frameDescriptors,
-                    pe.frameLineNumbers, pe.frameIsJava);
-                pe.stackDepth = n;
-            }
-        }
-        return pe;
+        proc.writeProfile(w);
+        out.write(w.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static void fillScratch(
@@ -206,22 +175,10 @@ public final class JFRConvert {
         scratch.stackDepth = n;
     }
 
-    private static HashMap<String, Object> extractFields(Map<String, Object> value) {
-        HashMap<String, Object> out = new HashMap<>(value.size());
-        for (Map.Entry<String, Object> e : value.entrySet()) {
-            String key = e.getKey();
-            if ("startTime".equals(key) || "duration".equals(key)
-                    || "eventThread".equals(key) || "stackTrace".equals(key)) continue;
-            Object v = unwrap(e.getValue());
-            if (v == null) continue;
-            if (v instanceof Map<?, ?> m) flatten(out, key, m);
-            else out.put(key, v);
-        }
-        return out;
-    }
-
     private static Processor.JFRThread extractThread(Map<String, Object> value) {
-        Object threadVal = value.get("eventThread");
+        // Prefer sampledThread (execution samples), fall back to eventThread.
+        Object threadVal = value.get("sampledThread");
+        if (threadVal == null) threadVal = value.get("eventThread");
         Map<String, Object> tMap = asMap(threadVal);
         if (tMap == null) return null;
         String javaName = getStr(tMap, "javaName");
@@ -358,6 +315,27 @@ public final class JFRConvert {
         Object v = m.get(key);
         if (v instanceof Long l) return l;
         if (v instanceof Integer i) return (long) i;
+        return null;
+    }
+
+    /**
+     * Reads a JFR timestamp field that may be stored as a raw Long (millis since epoch)
+     * or as a ComplexType wrapping a Long. Returns epoch milliseconds or null.
+     */
+    private static Long getTimestampMs(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        if (v instanceof Long l) return l;
+        if (v instanceof Integer i) return (long) i;
+        if (v instanceof ComplexType ct) {
+            Object inner = ct.getValue();
+            if (inner instanceof Long l) return l;
+            if (inner instanceof Integer i) return (long) i;
+            if (inner instanceof Map<?, ?> innerMap) {
+                Object epochMs = innerMap.get("epochMs");
+                if (epochMs instanceof Long l) return l;
+                if (epochMs instanceof Integer i) return (long) i;
+            }
+        }
         return null;
     }
 
