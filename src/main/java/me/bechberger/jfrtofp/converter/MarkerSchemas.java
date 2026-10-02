@@ -320,11 +320,7 @@ public final class MarkerSchemas {
             w.beginObject();
 
             for (FieldMapping field : mapping.fields) {
-                Object raw = field.accessor != null
-                    ? field.accessor.read(fields)
-                    : fields.get(field.sourceName);
-                if (raw == null) continue;
-
+                // STACKTRACE fields use event.stack directly — stackTrace is excluded from fields map
                 if (field.type == MarkerTypes.STACKTRACE) {
                     if (event != null && event.stackDepth > 0) {
                         int stackIdx = tables.processFrames(
@@ -334,11 +330,21 @@ public final class MarkerSchemas {
                         if (stackRefCallback != null) stackRefCallback.accept(stackIdx);
                         w.key(field.targetName).beginObject();
                         w.keyInt("stack", stackIdx);
-                        w.keyDouble("time", startMs);
+                        // minimalMarkerPayload=true (Kotlin default): don't write "time"
                         w.endObject();
+                    } else {
+                        w.key(field.targetName);
+                        w.value(0L);
                     }
                     continue;
                 }
+
+                Object raw = field.accessor != null
+                    ? field.accessor.read(fields)
+                    : fields.get(field.sourceName);
+                if (raw == null) continue;
+                // Drop sentinel Long values (Long.MIN_VALUE / Long.MAX_VALUE) — mirrors Kotlin dropSentinelValues=true
+                if (raw instanceof Long l && (l == Long.MIN_VALUE || l == Long.MAX_VALUE)) continue;
 
                 w.key(field.targetName);
                 try {
@@ -350,11 +356,12 @@ public final class MarkerSchemas {
             }
 
             w.keyString("type", eventType);
-            w.keyDouble("startTime", startMs - tables.startTimeMs);
 
             // Special: ObjectAllocationSample synthetic class stack
             if ("jdk.ObjectAllocationSample".equals(eventType)) {
-                Object className = fields.get("objectClass");
+                // objectClass is a nested struct flattened to objectClass.name
+                Object className = fields.get("objectClass.name");
+                if (className == null) className = fields.get("objectClass");
                 if (className != null) {
                     String cn = className.toString();
                     if (!cn.isEmpty()) {

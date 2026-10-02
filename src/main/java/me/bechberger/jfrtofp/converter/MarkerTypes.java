@@ -34,10 +34,9 @@ public final class MarkerTypes {
     public static final Format DECIMAL_FMT    = w -> w.value("decimal");
     public static final Format LIST_FMT       = w -> w.value("list");
 
-    /** {type:'table', columns:[{},{}]} */
+    /** {columns:[{},{}]} — no 'type' key, matching Kotlin's encodeDefaults=false behavior */
     public static final Format TABLE_FMT = w -> {
         w.beginObject();
-        w.keyString("type", "table");
         w.key("columns").beginArray().beginObject().endObject().beginObject().endObject().endArray();
         w.endObject();
     };
@@ -200,7 +199,7 @@ public final class MarkerTypes {
         // Address-name aliases
         for (String n : new String[] {
             "baseAddress", "topAddress", "startAddress", "reservedTopAddress",
-            "heapAddressBits", "objectAlignment",
+            "heapAddressBits", "objectAlignment", "classLoaderData",
         }) {
             FIELD_NAME_ALIASES.put(n.toLowerCase(), ADDRESS);
         }
