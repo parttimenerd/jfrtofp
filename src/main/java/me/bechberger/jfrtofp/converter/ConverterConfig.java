@@ -147,12 +147,59 @@ public final class ConverterConfig {
     }
 
     public ConverterConfig withSourceUrl(String url) {
-        return new ConverterConfig(
-            nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
             url, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
             minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
-            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty,
-            ignoredEvents, includeNoisyEvents);
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withNonProjectPackagePrefixes(String[] prefixes) {
+        return new ConverterConfig(prefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
+            minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withEnableMarkers(boolean v) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, v, enableAllocations, maxThreads, includeGCThreads,
+            minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withInitialVisibleThreads(int v) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
+            minRequiredItemsPerThread, v, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withInitialSelectedThreads(int v) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
+            minRequiredItemsPerThread, initialVisibleThreads, v,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withIncludeGCThreads(boolean v) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, v,
+            minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
+    }
+
+    public ConverterConfig withIgnoredEvents(java.util.Set<String> events) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
+            minRequiredItemsPerThread, initialVisibleThreads, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, events, includeNoisyEvents);
+    }
+
+    public ConverterConfig withMinRequiredItemsPerThread(int v) {
+        return new ConverterConfig(nonProjectPackagePrefixes, maxExecutionSamplesPerThread, maxMiscSamplesPerThread,
+            sourceUrl, enableMarkers, enableAllocations, maxThreads, includeGCThreads,
+            v, initialVisibleThreads, initialSelectedThreads,
+            selectProcessTrackInitially, useNonProjectCategory, omitEventThreadProperty, ignoredEvents, includeNoisyEvents);
     }
 
     /** Equivalent of the TS regex `jdk\.ExecutionSample|jdk\.NativeMethodSample|jdk\.CPUTimeSample` */

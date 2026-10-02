@@ -32,15 +32,21 @@ public final class JFRConverter {
     }
 
     /**
-     * Convert a JFR or CJFR file at {@code path} to Firefox Profiler JSON.
+     * Convert a JFR or CJFR file at {@code path} to Firefox Profiler JSON using the given config.
      */
-    public static void convertPath(Path path, OutputStream out) throws Exception {
+    public static void convert(Path path, ConverterConfig config, OutputStream out) throws Exception {
         String name = path.getFileName().toString();
-        ConverterConfig config = ConverterConfig.defaults();
         if (name.endsWith(".cjfr")) {
             CJFRConvert.convert(path, config, out);
         } else {
             JFRConvert.convert(path, config, out);
         }
+    }
+
+    /**
+     * Convert a JFR or CJFR file at {@code path} to Firefox Profiler JSON with default config.
+     */
+    public static void convertPath(Path path, OutputStream out) throws Exception {
+        convert(path, ConverterConfig.defaults(), out);
     }
 }
