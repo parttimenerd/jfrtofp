@@ -183,8 +183,9 @@ public final class JFRConvert {
         if (tMap == null) return null;
         String javaName = getStr(tMap, "javaName");
         String osName = getStr(tMap, "osName");
-        long id = getLongOrDefault(tMap, "javaThreadId",
-                    getLongOrDefault(tMap, "osThreadId", -1L));
+        long javaId = getLongOrDefault(tMap, "javaThreadId", 0L);
+        // javaThreadId=0 means no Java thread ID (native/GC thread); use osThreadId for uniqueness.
+        long id = javaId != 0L ? javaId : getLongOrDefault(tMap, "osThreadId", -1L);
         Object virt = tMap.get("virtual");
         boolean isVirtual = virt instanceof Boolean b && b;
         return new Processor.JFRThread(id, javaName, osName, isVirtual);
