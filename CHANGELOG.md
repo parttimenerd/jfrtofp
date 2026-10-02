@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## [0.0.13]
+
+- Fix: interval estimation now uses modal-bucket detection (5 ms histogram) per thread,
+  then takes the minimum across threads — avoids sub-ms noise events (GC, allocation)
+  and outlier-heavy threads inflating the estimate
+
+## [0.0.12]
+
+- Fix: `heapAddressBits` rendered as integer `'32'` not hex `'0x20'`
+- Fix: marker field extraction — STACKTRACE fields, `cause.time`, `_class`, TABLE format,
+  JFR sentinel values now handled correctly
+- Fix: use `osThreadId` when `javaThreadId=0` to uniquely identify native/GC threads
+- Fix: use `sampledThread` (not `eventThread`) for execution-sample thread routing,
+  fix `isSystemThread`/`GCLoad` field names
+- Feat: public `Config`/`ConfigMixin`/`FileCache` Java API; `JFRConverter.convert(path, config, out)`
+  overload for configured conversion
+- Fix: add setters for `includeInitialSystemProperty`, `includeInitialEnvironmentVariables`,
+  `includeSystemProcesses` in `Config.java`
+
+## [0.0.11]
+
+- Refactor: converter rewritten in pure Java (was Kotlin); same public API
+- Feat: WASM entry points (`JFRParser`, `CJFRParser`) added to jfrtofp for GraalVM
+  Web Image builds
+- Feat: `JFRConverter` public entry point (`convert(bytes, extension, out)` and
+  `convertPath(path, out)`) for embedding in other projects
+- Build: GraalVM webimage stubs excluded from published JAR
+
+## [0.0.10]
+
+- Feat: `.cjfr` (condensed JFR) support via `CJFRConvert`
+- Fix: use `sampledThread` fallback for `.cjfr` execution samples (was reading
+  `eventThread` only, producing 0 samples)
+- Feat: converter sources moved from firefox-profiler into jfrtofp as the single
+  canonical implementation; firefox-profiler WASM shims are now thin wrappers
+
 ## [0.0.8]
 
 - Fix: remove `jdk.GCHeapSummary` from `DEFAULT_NOISY_EVENTS` — it is the sole
