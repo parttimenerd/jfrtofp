@@ -72,7 +72,7 @@ dependencies {
     implementation("info.picocli:picocli:4.7.7")
     implementation("org.ow2.asm:asm:9.10.1")
     implementation("io.btrace:jafar-parser:0.27.0")
-    implementation("me.bechberger:condensed-data:0.1.3")
+    implementation("me.bechberger:condensed-data:0.1.4")
 
     // GraalVM Web Image annotations — only needed at compile time for @JS, @JS.Coerce
     compileOnly("org.graalvm.sdk:nativeimage:25.0.0")
@@ -98,10 +98,10 @@ val installCondensedData by tasks.registering(Exec::class) {
     description = "Build condensed-data and install to mavenLocal"
     dependsOn(cloneOrUpdateCondensedData)
     workingDir(condensedDataDir)
-    commandLine("mvn", "-q", "install", "-DskipTests")
+    commandLine("mvn", "-q", "install", "-DskipTests", "-P!jmc-test")
     inputs.dir(condensedDataDir.resolve("src"))
     inputs.file(condensedDataDir.resolve("pom.xml"))
-    outputs.file(condensedDataDir.resolve("target/condensed-data-0.1.3.jar"))
+    outputs.file(condensedDataDir.resolve("target/condensed-data-0.1.4.jar"))
 }
 
 tasks.test {
