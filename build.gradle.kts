@@ -38,6 +38,21 @@ tasks.withType<JavaCompile> {
     options.compilerArgs.add("-parameters")
 }
 
+// WASM entry-point files (JFRParser, CJFRParser, WebMain) use @JS / JSObject from
+// org.graalvm.webimage.api — a module that ships with GraalVM 25 as a named jmod.
+// The stubs in src/main/java/org/graalvm/webimage/ allow compilation on non-GraalVM JDKs,
+// but conflict when GraalVM 25 is the active JDK.
+// Solution: exclude both the stubs and the WASM entry points from the regular build.
+// The published JAR only needs the converter library classes (JFRConverter, Processor, …).
+sourceSets.main {
+    java {
+        exclude("org/graalvm/webimage/**")
+        exclude("me/bechberger/jfrtofp/JFRParser.java",
+                "me/bechberger/jfrtofp/CJFRParser.java",
+                "me/bechberger/jfrtofp/WebMain.java")
+    }
+}
+
 tasks.withType<Javadoc> {
     (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
 }
