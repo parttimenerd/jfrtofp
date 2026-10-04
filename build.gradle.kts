@@ -98,7 +98,7 @@ val installCondensedData by tasks.registering(Exec::class) {
     description = "Build condensed-data and install to mavenLocal"
     dependsOn(cloneOrUpdateCondensedData)
     workingDir(condensedDataDir)
-    commandLine("mvn", "-q", "install", "-DskipTests", "-P!jmc-test")
+    commandLine("mvn", "-q", "install", "-Dmaven.test.skip=true", "-P!jmc-test")
     inputs.dir(condensedDataDir.resolve("src"))
     inputs.file(condensedDataDir.resolve("pom.xml"))
     outputs.file(condensedDataDir.resolve("target/condensed-data-0.1.4.jar"))
