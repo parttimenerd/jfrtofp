@@ -206,7 +206,8 @@ public final class ConverterConfig {
     public boolean isExecutionSample(String eventType) {
         return "jdk.ExecutionSample".equals(eventType)
             || "jdk.NativeMethodSample".equals(eventType)
-            || "jdk.CPUTimeSample".equals(eventType);
+            || "jdk.CPUTimeSample".equals(eventType)
+            || "profiler.WallClockSample".equals(eventType);
     }
 
     public boolean isNonProjectPackage(String packageName) {
